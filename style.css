@@ -21,12 +21,12 @@
 
 /* ===== 미니 콘솔 (올인원) ===== */
 #beastlog-console {
-  position: fixed; left: 12px; right: 12px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 9000; max-width: 392px; margin: 0 auto;
+  position: fixed; left: 12px; right: 12px; bottom: 14px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 2147483000; max-width: 392px; margin: 0 auto;
   background-color: var(--bl-card2); background-image: var(--bl-dot); background-size: 4px 4px;
   border: 3px solid var(--bl-edge); border-radius: 12px;
   box-shadow: 3px 4px 0 var(--bl-shadow), 0 10px 22px -16px rgba(84,68,42,.5); overflow: hidden;
 }
-.bl-topbar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 3px solid var(--bl-edge); background: var(--bl-point); }
+.bl-topbar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 3px solid var(--bl-edge); background: var(--bl-point); touch-action: none; cursor: move; }
 .bl-title { font-family: var(--bl-chrome); font-size: 12px; color: #4A3C24; }
 .bl-spacer { flex: 1; }
 .bl-inject { display: flex; align-items: center; gap: 5px; background: var(--bl-card2); border: 2px solid var(--bl-edge); padding: 3px 7px; border-radius: 8px; }
@@ -84,7 +84,7 @@
 .bl-jchip.bait { border-color: var(--bl-rose-d); background: #F7E7E1; }
 
 /* ===== 팝업 (조우 / 결과 / 로딩 / 알람) ===== */
-#beastlog-popup { position: fixed; inset: 0; z-index: 9500; display: flex; align-items: flex-start; justify-content: center; background: rgba(60,48,28,.32); padding: 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+#beastlog-popup { position: fixed; inset: 0; z-index: 2147483600; display: flex; align-items: flex-start; justify-content: center; background: rgba(60,48,28,.32); padding: 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 .bl-pop-card { margin: auto; max-height: calc(100dvh - 32px); overflow-y: auto; -webkit-overflow-scrolling: touch; background-color: var(--bl-card2); background-image: var(--bl-dot); background-size: 4px 4px; border: 3px solid var(--bl-edge); border-radius: 12px; padding: 16px; width: min(322px, 88vw); box-shadow: 4px 5px 0 var(--bl-shadow), 0 16px 32px -20px rgba(60,48,28,.5); }
 .bl-pop-badge { display: block; width: fit-content; margin: 0 auto 8px; font-family: var(--bl-chrome); font-size: 11px; padding: 3px 11px; border: 2px solid var(--bl-edge); border-radius: 8px; }
 .bl-pop-emoji { font-size: 38px; text-align: center; margin-bottom: 4px; }
@@ -119,7 +119,7 @@
 .bl-alarm-ok { margin-top: 14px !important; border: 2px solid var(--bl-rose-d) !important; border-radius: 9px; padding: 9px 22px; color: var(--bl-rose-d) !important; background: var(--bl-card2); box-shadow: 2px 2px 0 var(--bl-shadow); }
 
 /* ===== 풀버전 (기록·설정) ===== */
-#beastlog-full { position: fixed; inset: 0; z-index: 9400; display: flex; align-items: flex-start; justify-content: center; background: rgba(60,48,28,.34); padding: 14px 12px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+#beastlog-full { position: fixed; inset: 0; z-index: 2147483400; display: flex; align-items: flex-start; justify-content: center; background: rgba(60,48,28,.34); padding: 14px 12px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 .bl-full-card { width: min(404px, 96vw); max-height: calc(100vh - 28px); max-height: calc(100dvh - 28px); display: flex; flex-direction: column; background-color: var(--bl-card2); background-image: var(--bl-dot); background-size: 4px 4px; border: 3px solid var(--bl-edge); border-radius: 14px; overflow: hidden; box-shadow: 5px 6px 0 var(--bl-shadow), 0 24px 50px -28px rgba(60,48,28,.55); }
 .bl-full-sign { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: var(--bl-point); border-bottom: 3px solid var(--bl-edge); }
 .bl-full-logo { font-family: var(--bl-chrome); font-size: 14px; color: #4A3C24; }

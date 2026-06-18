@@ -1,11 +1,11 @@
-// 🐯 비스트로그 (Beast Log) v0.15.1 — 모바일 안정성 패치 (팝업 스크롤·웹뷰 입력·한글 줄바꿈·세이프에어리어)
+// 🐯 비스트로그 (Beast Log) v0.16.0 — 모바일 마운트 복구(z-index·폴백·자가복구) + 미니창 드래그 이동
 // 버전 3곳 동시 갱신: (1) 이 주석, (2) BEASTLOG_VERSION, (3) manifest.json
 //
 // 제1원칙: 재밌음 + RP에 긍정적. 컨셉: "채팅 속 일상 → 조우/상황/선택/소문/후일담."
 // 다마고치+동숲 톤. 전투 용어(결투/전투력) 안 씀. 잡템=웃김 / 떡밥=RP연료(주입). 아이템 사용 메카닉 없음.
 // OFF-SCREEN: 뒷소문(유저 쪽)은 패널 전용. 저장: 게임=chat_metadata / 설정=extension_settings.
 
-const BEASTLOG_VERSION = '0.15.1';
+const BEASTLOG_VERSION = '0.16.0';
 const MODULE = 'beast_log';
 
 function getCtx() {
@@ -51,7 +51,7 @@ const AFTER_POOL = ['며칠 뒤, 그 사람은 당신을 꽤 괜찮은 사람으
 function rollAfter() { return Math.random() < 0.18 ? pick(AFTER_POOL) : null; }
 
 // ── 전역 설정 ──
-function defaultExt() { return { connectionProfile: '', autoDetect: false, cooldownTurns: 3, mascot: 'tiger', contextDepth: 'balance' }; }
+function defaultExt() { return { connectionProfile: '', autoDetect: false, cooldownTurns: 3, mascot: 'tiger', contextDepth: 'balance', consolePos: null }; }
 let EXT = defaultExt();
 function loadExt() {
     const ctx = getCtx();
@@ -413,6 +413,49 @@ function buildConsole() {
         if (e.target.closest('.bl-bag-inject')) { injectBait(); return; }
         bagHead.parentElement.classList.toggle('collapsed');
     });
+    wireDrag(consoleEl.querySelector('.bl-topbar'));
+}
+// 미니창 드래그 (경계 클램프 + 위치 저장)
+function wireDrag(bar) {
+    if (!bar) return;
+    let st = null;
+    bar.addEventListener('pointerdown', e => {
+        if (e.target.closest('button, .bl-sw, .bl-up, .bl-inject')) return;
+        const r = consoleEl.getBoundingClientRect();
+        st = { dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false };
+        consoleEl.style.left = r.left + 'px'; consoleEl.style.top = r.top + 'px';
+        consoleEl.style.right = 'auto'; consoleEl.style.bottom = 'auto'; consoleEl.style.margin = '0';
+        try { bar.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
+    });
+    bar.addEventListener('pointermove', e => {
+        if (!st) return;
+        st.moved = true;
+        const w = consoleEl.offsetWidth, h = consoleEl.offsetHeight;
+        let nx = Math.max(4, Math.min(window.innerWidth - w - 4, e.clientX - st.dx));
+        let ny = Math.max(4, Math.min(window.innerHeight - h - 4, e.clientY - st.dy));
+        consoleEl.style.left = nx + 'px'; consoleEl.style.top = ny + 'px';
+    });
+    const end = () => {
+        if (!st) return;
+        if (st.moved) { EXT.consolePos = { left: parseInt(consoleEl.style.left, 10), top: parseInt(consoleEl.style.top, 10) }; saveExt(); }
+        st = null;
+    };
+    bar.addEventListener('pointerup', end);
+    bar.addEventListener('pointercancel', end);
+}
+function applyConsolePos() {
+    if (!consoleEl) return;
+    const p = EXT.consolePos;
+    if (!p || typeof p.left !== 'number') { consoleEl.style.left = ''; consoleEl.style.top = ''; consoleEl.style.right = ''; consoleEl.style.bottom = ''; consoleEl.style.margin = ''; return; }
+    const w = consoleEl.offsetWidth || 340, h = consoleEl.offsetHeight || 220;
+    const left = Math.max(4, Math.min(window.innerWidth - w - 4, p.left));
+    const top = Math.max(4, Math.min(window.innerHeight - h - 4, p.top));
+    consoleEl.style.left = left + 'px'; consoleEl.style.top = top + 'px';
+    consoleEl.style.right = 'auto'; consoleEl.style.bottom = 'auto'; consoleEl.style.margin = '0';
+}
+function ensureMounted() {
+    try { if (consoleEl && document.body && !document.body.contains(consoleEl)) document.body.appendChild(consoleEl); }
+    catch (e) { /* noop */ }
 }
 function cycleMascot() {
     const i = MASCOT_KEYS.indexOf(EXT.mascot);
@@ -570,7 +613,7 @@ function renderFull() {
 }
 
 // ── 상태 전환 ──
-function showMini() { if (consoleEl) consoleEl.style.display = ''; if (fullEl) fullEl.style.display = 'none'; renderConsole(); }
+function showMini() { if (consoleEl) consoleEl.style.display = ''; if (fullEl) fullEl.style.display = 'none'; ensureMounted(); applyConsolePos(); renderConsole(); }
 function showFull() { buildFull(); if (consoleEl) consoleEl.style.display = 'none'; fullEl.style.display = 'flex'; renderFull(); }
 function hideHud() { if (consoleEl) consoleEl.style.display = 'none'; if (fullEl) fullEl.style.display = 'none'; }
 function renderAll() { renderConsole(); if (fullEl) renderFull(); }
@@ -760,16 +803,29 @@ function registerEvents() {
     const ctx = getCtx();
     if (!ctx || !ctx.eventSource) return;
     const types = ctx.eventTypes || ctx.event_types || {};
-    if (types.CHAT_CHANGED) ctx.eventSource.on(types.CHAT_CHANGED, () => { STATE = loadState(); renderAll(); });
+    if (types.CHAT_CHANGED) ctx.eventSource.on(types.CHAT_CHANGED, () => { STATE = loadState(); ensureMounted(); renderAll(); });
     // TODO(자동 옵션): EXT.autoDetect && types.MESSAGE_RECEIVED → 텀 통과 시 onAppear()
 }
 
 function init() {
-    EXT = loadExt(); STATE = loadState();
-    buildConsole(); renderConsole();
-    buildSettingsWithRetry(10); buildWandMenuWithRetry(10);
-    registerEvents();
-    blDebug('비스트로그', BEASTLOG_VERSION, '로드됨');
+    try {
+        EXT = loadExt(); STATE = loadState();
+        buildConsole(); renderConsole(); applyConsolePos();
+        buildSettingsWithRetry(10); buildWandMenuWithRetry(10);
+        registerEvents();
+        setTimeout(ensureMounted, 1500);
+        setTimeout(ensureMounted, 4000);
+        blDebug('비스트로그', BEASTLOG_VERSION, '로드됨');
+    } catch (e) { console.error('[비스트로그] init 실패:', e); }
+}
+// 모바일 디버그용 강제 호출구
+if (typeof window !== 'undefined') {
+    window.beastlog = {
+        show: () => { try { ensureMounted(); showMini(); } catch (e) { console.error(e); } },
+        full: () => { try { showFull(); } catch (e) { console.error(e); } },
+        remount: () => { try { ensureMounted(); } catch (e) { console.error(e); } },
+        reset: () => { EXT.consolePos = null; saveExt(); applyConsolePos(); },
+    };
 }
 if (typeof document !== 'undefined') {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
