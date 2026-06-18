@@ -1,8 +1,9 @@
-// 🐯 비스트로그 (Beast Log) v0.17.0 — 레이아웃 복귀(2칸 미니/리치 풀) + 일지·소지품 정리 + 모바일 마운트 복구·진단
+// 🐯 비스트로그 (Beast Log) v0.18.0 — 미니 재배치(상단바 마스코트+Lv+XP / 좌:상태·소지품접힘 / 우:출현·상황) + 폰트·디버그 유지
 // 버전 3곳 동시 갱신: (1) 이 주석, (2) BEASTLOG_VERSION, (3) manifest.json
 
-const BEASTLOG_VERSION = '0.17.0';
+const BEASTLOG_VERSION = '0.18.0';
 const MODULE = 'beast_log';
+let LAST_ERROR = '';
 try { console.log('[비스트로그] script loaded v' + BEASTLOG_VERSION); } catch (e) { /* noop */ }
 
 function getCtx() {
@@ -377,7 +378,8 @@ function buildConsole() {
     Object.assign(consoleEl.style, { position: 'fixed', left: '12px', right: '12px', bottom: '14px', zIndex: '2147483000', maxWidth: '392px', margin: '0 auto' });
     consoleEl.innerHTML = `
       <div class="bl-topbar">
-        <span class="bl-grip">⠿</span><span class="bl-title">비스트로그</span>
+        <span class="bl-pet-emoji-mini"></span><span class="bl-lv num"></span>
+        <span class="bl-xmini"><i></i></span>
         <span class="bl-spacer"></span>
         <span class="bl-inject"><span class="bl-lab">📤</span><span class="bl-sw" data-on="true"></span></span>
         <span class="bl-up" title="기록·설정 열기">📖</span>
@@ -385,13 +387,11 @@ function buildConsole() {
       <div class="bl-panes">
         <div class="bl-pane-l">
           <div class="bl-mini-status">
-            <div class="bl-ms-top"><span class="bl-pet-emoji-mini"></span><span class="bl-lv num"></span></div>
             <div class="bl-status"><span class="bl-st-mood"></span><span class="bl-st-hunger"></span><span class="bl-st-hp"></span></div>
-            <div class="bl-xmini"><i></i></div>
             <div class="bl-ms-rep">⭐ <b class="num bl-rep"></b> · 🎒 <b class="num bl-itemcnt"></b></div>
           </div>
-          <div class="bl-mini-bag">
-            <div class="bl-mb-h">🎒 소지품 <button class="bl-bag-inject" title="떡밥 주입">📤</button></div>
+          <div class="bl-mini-bag collapsed">
+            <div class="bl-mb-h">🎒 소지품 <span class="bl-mb-cnt num"></span><button class="bl-bag-inject" title="떡밥 주입">📤</button><span class="bl-mb-chev">▾</span></div>
             <div class="bl-bag-list"></div>
           </div>
         </div>
@@ -407,6 +407,8 @@ function buildConsole() {
     consoleEl.querySelector('.bl-randevent').addEventListener('click', onSituation);
     consoleEl.querySelector('.bl-up').addEventListener('click', showFull);
     consoleEl.querySelector('.bl-bag-inject').addEventListener('click', injectBait);
+    const mbh = consoleEl.querySelector('.bl-mb-h');
+    mbh.addEventListener('click', e => { if (e.target.closest('.bl-bag-inject')) return; mbh.parentElement.classList.toggle('collapsed'); });
     wireDrag(consoleEl.querySelector('.bl-topbar'));
 }
 function wireDrag(bar) {
@@ -457,7 +459,8 @@ function renderConsole() {
     consoleEl.querySelector('.bl-rep').textContent = (STATE.rep > 0 ? '+' : '') + STATE.rep;
     consoleEl.querySelector('.bl-itemcnt').textContent = STATE.items.length;
     consoleEl.querySelector('.bl-sw').dataset.on = STATE.settings.injectDefault ? 'true' : 'false';
-    consoleEl.querySelector('.bl-bag-list').innerHTML = bagPreviewHtml(2);
+    consoleEl.querySelector('.bl-bag-list').innerHTML = bagPreviewHtml(3);
+    consoleEl.querySelector('.bl-mb-cnt').textContent = STATE.items.length;
     const rem = injectRemaining();
     consoleEl.querySelector('.bl-cooldown').textContent = rem > 0 ? `💉 ${rem}턴` : '💉 준비';
 }
@@ -664,11 +667,13 @@ function buildSettings(container) {
             <option value="all">전체</option>
           </select></label>
           <div class="bls-ver">🐯 Beast Log v${BEASTLOG_VERSION} · 확장 메뉴(🪄) 또는 미니창 📖 로 열기</div>
+          <div class="bls-row"><span>🐞 디버그 (콘솔 없이 상태 확인)</span><button id="bls-diag" class="bls-diag-btn">진단 보기</button></div>
         </div>
       </div>`;
     container.appendChild(wrap);
     refreshProfileOptions();
     wrap.querySelector('#bls-profile').addEventListener('change', e => { EXT.connectionProfile = e.target.value; saveExt(); });
+    const dgb = wrap.querySelector('#bls-diag'); if (dgb) dgb.addEventListener('click', showDiagPopup);
     const dsel = wrap.querySelector('#bls-depth');
     if (dsel) { dsel.value = EXT.contextDepth || 'balance'; dsel.addEventListener('change', e => { EXT.contextDepth = e.target.value; saveExt(); }); }
     setTimeout(refreshProfileOptions, 1500);
@@ -829,6 +834,8 @@ function diag() {
     const el = consoleEl;
     const cs = el ? getComputedStyle(el) : null;
     const r = el ? el.getBoundingClientRect() : null;
+    let fontOk = false;
+    try { fontOk = !!(document.fonts && document.fonts.check("12px 'Galmuri11'")); } catch (e) { /* noop */ }
     const d = {
         v: BEASTLOG_VERSION,
         inDom: !!(el && document.body && document.body.contains(el)),
@@ -836,9 +843,39 @@ function diag() {
         rect: r ? { t: Math.round(r.top), l: Math.round(r.left), w: Math.round(r.width), h: Math.round(r.height) } : null,
         vp: { w: window.innerWidth, h: window.innerHeight },
         cssLoaded: cs ? (cs.borderTopWidth !== '0px' && cs.borderTopWidth !== '') : false,
+        fontLoaded: fontOk, ctx: !!getCtx(), profiles: getProfiles().length, lastError: LAST_ERROR || '(없음)',
     };
     try { console.log('[비스트로그] DIAG ' + JSON.stringify(d)); } catch (e) { /* noop */ }
     return d;
+}
+function showDiagPopup() {
+    const d = diag();
+    const lines = [
+        'Beast Log v' + d.v,
+        '─────────────',
+        'inDom      : ' + d.inDom,
+        'position   : ' + d.pos,
+        'display    : ' + d.disp,
+        'zIndex     : ' + d.z,
+        'rect       : ' + (d.rect ? `${d.rect.w}x${d.rect.h} @(${d.rect.l},${d.rect.t})` : 'null'),
+        'viewport   : ' + d.vp.w + 'x' + d.vp.h,
+        'cssLoaded  : ' + d.cssLoaded,
+        'font(갈무리): ' + d.fontLoaded,
+        'ctx        : ' + (d.ctx ? 'ok' : 'null'),
+        'profiles   : ' + d.profiles,
+        '─────────────',
+        'lastError  :',
+        d.lastError,
+    ];
+    closePopup();
+    const pop = document.createElement('div'); pop.id = 'beastlog-popup';
+    pop.innerHTML = `<div class="bl-pop-card bl-cat-npc">
+        <div class="bl-pop-badge">🐞 진단</div>
+        <div class="bl-diag-box">${escapeHtml(lines.join('\n'))}</div>
+        <button class="bl-pop-ignore bl-alarm-ok">닫기</button>
+      </div>`;
+    document.body.appendChild(pop);
+    pop.querySelector('.bl-alarm-ok').addEventListener('click', closePopup);
 }
 
 function registerEvents() {
@@ -858,7 +895,7 @@ function init() {
         setTimeout(ensureMounted, 4000);
         setTimeout(diag, 800);
         blDebug('비스트로그', BEASTLOG_VERSION, '로드됨');
-    } catch (e) { console.error('[비스트로그] init 실패:', e); }
+    } catch (e) { LAST_ERROR = (e && (e.stack || e.message)) || String(e); console.error('[비스트로그] init 실패:', e); }
 }
 if (typeof window !== 'undefined') {
     window.beastlog = {
