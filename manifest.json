@@ -1,0 +1,11 @@
+{
+  "display_name": "🐾 비스트로그 (Beast Log)",
+  "loading_order": 100,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "Yun",
+  "version": "0.1.0",
+  "homePage": "https://github.com/My-money-is-yours/beast-log"
+}

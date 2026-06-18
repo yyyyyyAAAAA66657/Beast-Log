@@ -1,0 +1,70 @@
+/* 🐾 비스트로그 (Beast Log) v0.1.0 — 푸딩카페 */
+@import url('https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&display=swap');
+@import url('https://cdn.jsdelivr.net/gh/quiple/galmuri/dist/galmuri.css');
+
+:root {
+  --bl-bg: #FAF3E8; --bl-card: #FFFFFF; --bl-caramel: #E8C39E; --bl-caramel-deep: #CC9A66;
+  --bl-custard: #FFE3A3; --bl-rose: #DFA29B; --bl-moss: #A8C09A; --bl-chili: #E0928C;
+  --bl-ink: #6B5644; --bl-ink-soft: #A8927E; --bl-line: #EFE2CE;
+}
+
+#beastlog-console, #beastlog-console *, #beastlog-popup, #beastlog-popup * {
+  box-sizing: border-box; font-family: 'Gowun Dodum', sans-serif;
+}
+#beastlog-console .num, #beastlog-popup .num { font-family: 'Galmuri11', 'Gowun Dodum', monospace; }
+
+/* 미니 콘솔 */
+#beastlog-console {
+  position: fixed; left: 12px; right: 12px; bottom: 14px; z-index: 9000;
+  max-width: 392px; margin: 0 auto;
+  background: var(--bl-card); border: 1px solid var(--bl-line); border-radius: 16px;
+  overflow: hidden; box-shadow: 0 16px 34px -16px rgba(90, 70, 50, .5); color: var(--bl-ink);
+}
+.bl-topbar {
+  display: flex; align-items: center; gap: 9px; padding: 9px 11px;
+  border-bottom: 1px solid var(--bl-line); background: linear-gradient(180deg, #FFFDF8, #FCF4E7);
+}
+.bl-paw { font-size: 16px; }
+.bl-lv { font-size: 13px; color: var(--bl-caramel-deep); }
+.bl-xmini { width: 38px; height: 6px; border-radius: 20px; background: #F1E6D4; overflow: hidden; }
+.bl-xmini i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--bl-custard), var(--bl-caramel-deep)); transition: width .3s; }
+.bl-spacer { flex: 1; }
+.bl-inject { display: flex; align-items: center; gap: 7px; background: #fff; border: 1px solid var(--bl-line); border-radius: 11px; padding: 5px 9px; }
+.bl-lab { font-size: 11px; }
+.bl-sw { width: 32px; height: 19px; border-radius: 20px; position: relative; cursor: pointer; transition: background .2s; background: #E2D6C4; }
+.bl-sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.18); transition: transform .2s; }
+.bl-sw[data-on="true"] { background: var(--bl-moss); }
+.bl-sw[data-on="true"]::after { transform: translateX(13px); }
+.bl-up { font-family: 'Galmuri11', monospace; font-size: 12px; color: var(--bl-ink-soft); cursor: pointer; padding-left: 2px; }
+
+.bl-panes { display: grid; grid-template-columns: 1fr 1fr; }
+.bl-pane { padding: 10px 11px 12px; }
+.bl-left { border-right: 1px dashed #E4D4BC; }
+.bl-pane-h { display: flex; align-items: center; gap: 5px; font-family: 'Jua', sans-serif; font-size: 12.5px; color: #5A4632; margin-bottom: 8px; }
+.bl-cnt { font-family: 'Galmuri11', monospace; font-size: 9.5px; color: var(--bl-ink-soft); margin-left: auto; }
+
+.bl-item { display: flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 5px 0; border-bottom: 1px dotted #EFE2CE; }
+.bl-item:last-child { border-bottom: none; }
+.bl-item .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bl-item .pr { font-family: 'Galmuri11', monospace; font-size: 9.5px; color: var(--bl-ink-soft); }
+.bl-empty { font-size: 11px; color: var(--bl-ink-soft); padding: 6px 0; }
+.bl-pwr { margin-top: 8px; font-size: 10.5px; background: #FBEFDC; border-radius: 8px; padding: 5px 8px; }
+.bl-pwr b { color: var(--bl-caramel-deep); }
+
+.bl-foe { background: #FFF7EE; border: 1px solid var(--bl-line); border-radius: 10px; padding: 8px 9px; margin-bottom: 9px; }
+.bl-foe .nm { font-size: 12px; color: #5A4632; font-weight: bold; }
+.bl-foe .sub { font-size: 10.5px; color: var(--bl-ink-soft); margin-top: 2px; }
+.bl-roll, .bl-fight { width: 100%; border-radius: 11px; cursor: pointer; font-family: 'Jua', sans-serif; }
+.bl-roll { border: none; padding: 10px 0; background: var(--bl-caramel-deep); color: #fff; font-size: 13px; box-shadow: 0 5px 12px -7px var(--bl-caramel-deep); }
+.bl-fight { margin-top: 7px; border: 1px solid #F0D7D2; background: #fff; color: var(--bl-chili); padding: 8px 0; font-size: 12px; }
+
+/* 조우 팝업 */
+#beastlog-popup { position: fixed; inset: 0; z-index: 9500; display: flex; align-items: center; justify-content: center; background: rgba(90,70,50,.25); }
+.bl-pop-card { background: var(--bl-card); border: 1px solid var(--bl-line); border-radius: 18px; padding: 20px 18px; width: min(320px, 86vw); box-shadow: 0 24px 60px -24px rgba(80,60,42,.55); color: var(--bl-ink); }
+.bl-pop-title { font-family: 'Jua', sans-serif; font-size: 17px; color: #5A4632; text-align: center; margin-bottom: 16px; }
+.bl-pop-choices { display: flex; flex-direction: column; gap: 9px; }
+.bl-pop-choices button { border: 1px solid var(--bl-line); background: #FBF1E2; color: var(--bl-ink); border-radius: 12px; padding: 12px; font-size: 13.5px; cursor: pointer; }
+.bl-pop-choices button:hover { background: #FCEAD3; }
+.bl-pop-ignore { display: block; margin: 14px auto 0; border: none; background: none; color: var(--bl-ink-soft); font-size: 11.5px; cursor: pointer; }
+
+@media (prefers-reduced-motion: reduce) { #beastlog-console *, #beastlog-popup * { transition: none !important; } }
