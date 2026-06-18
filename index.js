@@ -1,7 +1,7 @@
-// 🐯 비스트로그 (Beast Log) v0.20.1 — 미니탭에 현재 상황·현재 조우 슬롯 추가 (출현/상황 아래 가로 전체)
+// 🐯 비스트로그 (Beast Log) v0.20.2 — 결과 팝업: 후일담 붉은 칸 즉시 표시 + 3단계 조우 체인(도입→전개→결말, 토글) + 후일담 LLM 흐름 전체 반영
 // 버전 3곳 동시 갱신: (1) 이 주석, (2) BEASTLOG_VERSION, (3) manifest.json
 
-const BEASTLOG_VERSION = '0.20.1';
+const BEASTLOG_VERSION = '0.20.2';
 const MODULE = 'beast_log';
 let LAST_ERROR = '';
 try { console.log('[비스트로그] script loaded v' + BEASTLOG_VERSION); } catch (e) { /* noop */ }
@@ -49,7 +49,7 @@ const AFTER_POOL = ['며칠 뒤, 그 사람은 당신을 꽤 괜찮은 사람으
 function rollAfter() { return Math.random() < 0.18 ? pick(AFTER_POOL) : null; }
 
 // ── 전역 설정 ──
-function defaultExt() { return { connectionProfile: '', autoDetect: false, cooldownTurns: 3, mascot: 'tiger', contextDepth: 'balance', consolePos: null }; }
+function defaultExt() { return { connectionProfile: '', autoDetect: false, cooldownTurns: 3, mascot: 'tiger', contextDepth: 'balance', consolePos: null, chainOn: true }; }
 let EXT = defaultExt();
 function loadExt() {
     const ctx = getCtx();
@@ -209,10 +209,13 @@ ${RULES_FIT}
 [대화 맥락]
 ${getConvo()}`;
 }
-function buildResolvePrompt(item, choiceLabel, kind) {
+function buildResolvePrompt(item, choiceLabel, kind, history) {
+    const hist = (history && history.length)
+        ? `이 조우는 여러 박자로 이어졌다:\n${history.map((h, i) => `${i + 1}. ${h.title} → 선택: ${h.choice}`).join('\n')}\n그리고 마지막 선택: ${choiceLabel}\n결과/후일담은 이 전체 흐름을 반영해라.\n`
+        : '';
     return `RP 이벤트의 "결과"와 "뒷소문"을 만든다.
 이벤트: ${item.title} / 선택: ${choiceLabel} (kind:${kind})
-규칙: 데드팬 코미디, 한국어. exp=경험치 정수. rep=평판 변화 정수(좋은 행동 +, 괜히 시비/민폐 -). affDelta=관계 변화 정수(없으면 0).
+${hist}규칙: 데드팬 코미디, 한국어. exp=경험치 정수. rep=평판 변화 정수(좋은 행동 +, 괜히 시비/민폐 -). affDelta=관계 변화 정수(없으면 0).
 inner.foe=상대/주변의 진짜 속내(수치와 어긋나도 됨, 그게 재미). inner.user=유저 속내 추측("~했을지도/~었을 것이다" 식 단정 금지).
 after=가끔만(대개 null) 며칠 뒤 오해/뒷이야기 한 줄. drop=주운 물건 있으면 {name,emoji,price:0}, 없으면 null.
 대상(인물/생물)이 있으면: npcMemory=그 대상에 대해 오래 남을 한 줄 기억(없으면 null), npcState=그 대상의 현재 상태 짧게(없으면 null). JSON만.
@@ -220,6 +223,26 @@ after=가끔만(대개 null) 며칠 뒤 오해/뒷이야기 한 줄. drop=주운
 
 [대화 맥락]
 ${getConvo()}`;
+}
+function buildChainPrompt(item, history, choice, stage, max) {
+    const hist = history.map((h, i) => `${i + 1}. ${h.title} → 선택: ${h.choice}`).join('\n');
+    return `RP "조우"가 이어지는 중이다 (${stage}/${max}단계). 방금 선택을 받아 장면이 한 박자 전개된다 — 아직 결말이 아니다(결과/수치 금지).
+대상: ${item.foe || item.title}
+지금까지:
+${hist}
+이번 선택: ${choice.label} (kind:${choice.kind})
+규칙: 데드팬 코미디, 한국어. 직전 선택의 자연스러운 반응으로 상황이 한 단계 더 꼬이거나 풀린다. 새 선택지 3개(서로 다른 대응, 마지막은 빠지기 kind:flee). ${RULES_FIT}
+형식: {"beat":"전개 한두 문장","choices":[{"label":"...","kind":"..."},{"label":"...","kind":"..."},{"label":"...","kind":"flee"}]}
+
+[대화 맥락]
+${getConvo()}`;
+}
+function normalizeBeat(o) {
+    o = o || {};
+    let ch = Array.isArray(o.choices) ? o.choices.slice(0, 4) : [];
+    ch = ch.filter(c => c && c.label).map(c => ({ label: String(c.label), kind: VALID_KINDS.includes(c.kind) ? c.kind : 'interact' }));
+    if (!ch.length) ch = [{ label: '계속 지켜본다', kind: 'interact' }, { label: '물러난다', kind: 'flee' }];
+    return { beat: String(o.beat || '상황이 한 박자 더 이어진다.'), choices: ch };
 }
 function normalizeEvent(o, cat) {
     o = o || {};
@@ -345,11 +368,13 @@ function injectBait() {
 // ── 동기화/헬퍼 ──
 function setInjectDefault(v) { STATE.settings.injectDefault = v; saveState(STATE); renderAll(); syncControls(); }
 function setAutoDetect(v) { EXT.autoDetect = v; saveExt(); syncControls(); }
+function setChain(v) { EXT.chainOn = v; saveExt(); syncControls(); }
 function syncControls() {
     if (consoleEl) { const sw = consoleEl.querySelector('.bl-sw'); if (sw) sw.dataset.on = STATE.settings.injectDefault ? 'true' : 'false'; }
     if (fullEl) {
         const fi = fullEl.querySelector('.bl-t-inject'); if (fi) fi.checked = STATE.settings.injectDefault;
         const fa = fullEl.querySelector('.bl-t-auto'); if (fa) fa.checked = EXT.autoDetect;
+        const fc = fullEl.querySelector('.bl-t-chain'); if (fc) fc.checked = EXT.chainOn !== false;
     }
 }
 function pickMascot(key) { if (MASCOTS[key]) { EXT.mascot = key; saveExt(); renderAll(); } }
@@ -537,6 +562,7 @@ function buildFull() {
           <div class="bl-full-rolls"><button class="bl-roll2">🐯 출현</button><button class="bl-rand2">🌦️ 상황</button></div>
           <div class="bl-full-toggles">
             <label><span>📤 결과를 챗에 띄우기</span><input type="checkbox" class="bl-t-inject"></label>
+            <label><span>🔗 조우 체인 (3단계 전개)</span><input type="checkbox" class="bl-t-chain"></label>
             <label><span>📥 자동 감지 (입구)</span><input type="checkbox" class="bl-t-auto"></label>
           </div>
           <div class="bl-cd-row"><span>텀 (주입 간격)</span><input type="number" class="bl-cd-input" min="0" max="20"><span>턴</span></div>
@@ -558,6 +584,7 @@ function buildFull() {
     fullEl.querySelector('.bl-min').addEventListener('click', showMini);
     fullEl.querySelector('.bl-close').addEventListener('click', hideHud);
     fullEl.querySelector('.bl-t-inject').addEventListener('change', e => setInjectDefault(e.target.checked));
+    fullEl.querySelector('.bl-t-chain').addEventListener('change', e => setChain(e.target.checked));
     fullEl.querySelector('.bl-t-auto').addEventListener('change', e => setAutoDetect(e.target.checked));
     fullEl.querySelector('.bl-cd-input').addEventListener('change', e => { EXT.cooldownTurns = Math.max(0, parseInt(e.target.value, 10) || 0); saveExt(); renderAll(); });
     fullEl.querySelector('.bl-roll2').addEventListener('click', onAppear);
@@ -598,10 +625,14 @@ function buildFull() {
     fullEl.addEventListener('click', e => { if (e.target === fullEl) showMini(); });
 }
 function afterBlock(e) {
+    const inner = e.inner || {};
+    const foeLine = inner.foe ? `<div class="bl-af-line">💭 ${escapeHtml(inner.foe)}</div>` : '';
+    const youLine = inner.user ? `<div class="bl-af-line bl-af-you">👤 ${escapeHtml(inner.user)}</div>` : '';
+    const innerWrap = (foeLine || youLine) ? `<div class="bl-after">${foeLine}${youLine}</div>` : '';
     const rare = e.after
-        ? `<div class="bl-af-rare">🗞️ 희귀 후일담 — ${escapeHtml(e.after)}</div>`
+        ? `<div class="bl-af-rare">🗞️ 후일담 — ${escapeHtml(e.after)}</div>`
         : `<div class="bl-af-none">🗞️ ${escapeHtml(e._noNews || '별 소문 없었다.')}</div>`;
-    return `<div class="bl-after"><div class="bl-af-line">💭 ${escapeHtml(e.inner.foe)}</div><div class="bl-af-line bl-af-you">👤 ${escapeHtml(e.inner.user)}</div>${rare}</div>`;
+    return innerWrap + rare;
 }
 function chipsHtml(e) {
     return `${e.affDelta ? `<span class="bl-chip">❤️ ${e.affDelta > 0 ? '+' : ''}${e.affDelta}</span>` : ''}${e.rep ? `<span class="bl-chip">⭐ ${e.rep > 0 ? '+' : ''}${e.rep}</span>` : ''}<span class="bl-chip">EXP +${e.exp}</span>${e.drop ? `<span class="bl-chip">${e.dropBait ? '🎣 ' : ''}${escapeHtml(e.drop)}</span>` : ''}`;
@@ -647,6 +678,7 @@ function renderFull() {
     fullEl.querySelector('.bl-sit-v').innerHTML = sitLine();
     fullEl.querySelector('.bl-npc-v').innerHTML = npcLine();
     fullEl.querySelector('.bl-t-inject').checked = STATE.settings.injectDefault;
+    fullEl.querySelector('.bl-t-chain').checked = EXT.chainOn !== false;
     fullEl.querySelector('.bl-t-auto').checked = EXT.autoDetect;
     fullEl.querySelector('.bl-cd-input').value = EXT.cooldownTurns;
 
@@ -777,29 +809,37 @@ async function onAppear() {
     try {
         const txt = await llmGenerate(buildAppearPrompt(), 4096);
         const item = normalizeEvent(parseLLMJson(txt), 'npc');
-        closePopup(); showChoicePopup(item);
-    } catch (err) { closePopup(); if (!handleLlmError(err)) showChoicePopup(generateAppearStub()); }
+        closePopup(); startEncounter(item);
+    } catch (err) { closePopup(); if (!handleLlmError(err)) startEncounter(generateAppearStub()); }
 }
 async function onSituation() {
     showLoading(pick(LOAD_SIT));
     try {
         const txt = await llmGenerate(buildSituationPrompt(), 4096);
         const item = normalizeEvent(parseLLMJson(txt), 'situation');
-        closePopup(); showChoicePopup(item);
+        closePopup(); showChoicePopup(item, { stage: 1, max: 1, history: [], origItem: item });
     } catch (err) { closePopup(); if (!handleLlmError(err)) showChoicePopup(generateSituationStub()); }
 }
-function showChoicePopup(item) {
+function startEncounter(item) {
+    // 조우(npc)는 체인 ON이면 3박자, 아니면 1박자. 상황은 onSituation에서 1박자.
+    const max = (item.category === 'npc' && EXT.chainOn !== false) ? 3 : 1;
+    showChoicePopup(item, { stage: 1, max, history: [], origItem: item });
+}
+function showChoicePopup(item, chain) {
     closePopup();
+    chain = chain || { stage: 1, max: 1, history: [], origItem: item };
     const cat = item.category || 'npc';
     const choices = (item.choices && item.choices.length) ? item.choices : [{ label: '대응한다', kind: 'interact' }, { label: '지나친다', kind: 'flee' }];
+    const isBeat = chain.stage > 1; // 전개 단계: 비트 본문을 보여줌
     let relLine = '';
-    if (item.foe && STATE.npcs[item.foe]) relLine = `<div class="bl-pop-rel">${escapeHtml(STATE.npcs[item.foe].tier)} · ${STATE.npcs[item.foe].metCount}번째 만남</div>`;
+    if (chain.origItem.foe && STATE.npcs[chain.origItem.foe]) relLine = `<div class="bl-pop-rel">${escapeHtml(STATE.npcs[chain.origItem.foe].tier)} · ${STATE.npcs[chain.origItem.foe].metCount}번째 만남</div>`;
+    const stageTag = chain.max > 1 ? `<span class="bl-pop-stage">${chain.stage}/${chain.max}</span>` : '';
     const pop = document.createElement('div'); pop.id = 'beastlog-popup';
     pop.innerHTML = `
       <div class="bl-pop-card bl-cat-${cat}">
-        <div class="bl-pop-badge">${cat === 'npc' ? '🐯 조우' : '🌦️ 상황'}</div>
-        <div class="bl-pop-emoji">${item.emoji}</div>
-        <div class="bl-pop-title">${escapeHtml(item.title)}${cat === 'npc' ? '!' : ''}</div>
+        <div class="bl-pop-badge">${cat === 'npc' ? '🐯 조우' : '🌦️ 상황'}${stageTag}</div>
+        ${isBeat ? '' : `<div class="bl-pop-emoji">${chain.origItem.emoji}</div>`}
+        <div class="bl-pop-title">${escapeHtml(item.title)}${(!isBeat && cat === 'npc') ? '!' : ''}</div>
         ${relLine}
         ${item.desc ? `<div class="bl-pop-desc">${escapeHtml(item.desc)}</div>` : ''}
         <div class="bl-pop-choices">${choices.map((c, i) => `<button data-i="${i}">${escapeHtml(c.label)}</button>`).join('')}</div>
@@ -810,30 +850,52 @@ function showChoicePopup(item) {
         const i = parseInt(btn.dataset.i, 10);
         if (i < 0) { closePopup(); return; }
         const c = choices[i];
-        showLoading(pick(LOAD_RESOLVE));
-        try {
-            const txt = await llmGenerate(buildResolvePrompt(item, c.label, c.kind), 4096);
-            const outcome = normalizeOutcome(parseLLMJson(txt), c.kind);
-            closePopup(); applyOutcome(item, c.label, outcome, c.kind);
-        } catch (err) { closePopup(); if (!handleLlmError(err)) applyOutcome(item, c.label, resolveByKind(item, c.kind), c.kind); }
+        const orig = chain.origItem;
+        // flee로 빠지면 즉시 결말
+        const bail = c.kind === 'flee';
+        if (!bail && chain.stage < chain.max) {
+            // 전개: 다음 박자 생성
+            showLoading(pick(LOAD_RESOLVE));
+            try {
+                const txt = await llmGenerate(buildChainPrompt(orig, chain.history, c, chain.stage + 1, chain.max), 4096);
+                const beat = normalizeBeat(parseLLMJson(txt));
+                const nextHist = chain.history.concat([{ title: item.title, choice: c.label }]);
+                closePopup();
+                const nextItem = { category: orig.category, emoji: orig.emoji, foe: orig.foe, foeType: orig.foeType, title: beat.beat, desc: '', choices: beat.choices };
+                showChoicePopup(nextItem, { stage: chain.stage + 1, max: chain.max, history: nextHist, origItem: orig });
+            } catch (err) {
+                // 전개 실패 → 곧장 결말로 마무리 (소프트락 방지)
+                closePopup();
+                if (!handleLlmError(err)) await resolveAndApply(orig, c, chain.history.concat([{ title: item.title, choice: c.label }]));
+            }
+            return;
+        }
+        // 결말
+        await resolveAndApply(orig, c, chain.history.concat([{ title: item.title, choice: c.label }]));
     }));
+}
+async function resolveAndApply(orig, c, history) {
+    showLoading(pick(LOAD_RESOLVE));
+    try {
+        const txt = await llmGenerate(buildResolvePrompt(orig, c.label, c.kind, history), 4096);
+        const outcome = normalizeOutcome(parseLLMJson(txt), c.kind);
+        closePopup(); applyOutcome(orig, c.label, outcome, c.kind);
+    } catch (err) { closePopup(); if (!handleLlmError(err)) applyOutcome(orig, c.label, resolveByKind(orig, c.kind), c.kind); }
 }
 function showResultPopup(entry) {
     closePopup();
+    entry.revealed = true;
+    const en = STATE.encounters.find(x => x.id === entry.id); if (en) { en.revealed = true; saveState(STATE); }
     const pop = document.createElement('div'); pop.id = 'beastlog-popup';
     pop.innerHTML = `
       <div class="bl-pop-card bl-cat-${entry.category}">
         <div class="bl-pop-badge">🎭 결과</div>
         <div class="bl-pop-title">${escapeHtml(entry.result)}</div>
         <div class="bl-pop-chips">${chipsHtml(entry)}</div>
-        <div class="bl-result-rumor"><button class="bl-reveal2">🗞️ 뒷소문 보기</button></div>
-        <button class="bl-pop-ignore bl-result-ok">일지에 저장됨 · 확인</button>
+        ${afterBlock(entry)}
+        <button class="bl-pop-ignore bl-result-ok">📒 일지에 저장됨 · 확인</button>
       </div>`;
     mountPopup(pop);
-    pop.querySelector('.bl-reveal2').addEventListener('click', () => {
-        pop.querySelector('.bl-result-rumor').innerHTML = afterBlock(entry);
-        const en = STATE.encounters.find(x => x.id === entry.id); if (en) { en.revealed = true; saveState(STATE); }
-    });
     pop.querySelector('.bl-result-ok').addEventListener('click', closePopup);
 }
 function closePopup() { const p = document.getElementById('beastlog-popup'); if (p) p.remove(); }
