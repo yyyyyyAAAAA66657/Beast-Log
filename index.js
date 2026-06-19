@@ -1,7 +1,7 @@
-// 🐯 비스트로그 (Beast Log) v0.39.0-beta — 메인 3종 진화 비주얼 변신: 호랑이=골드+왕관+내려다보는눈 / 고양이=칠흑+빛나는눈 / 강아지=늑대회색+사나운눈 (Lv5 색짙어짐, Lv10 각성). spriteSVG에 tier 추가, 감정표정 우선
+// 🐯 비스트로그 (Beast Log) v0.39.1-beta — 퀘스트 목표 짤림 수정: 데이터 컷(slice 80→140) + 프롬프트가 목표를 한 문장으로 끝맺게(문단 금지). CSS 아니라 문자열 자체가 80자에서 잘리던 것
 // 버전 3곳 동시 갱신: (1) 이 주석, (2) BEASTLOG_VERSION, (3) manifest.json
 
-const BEASTLOG_VERSION = '0.39.0';
+const BEASTLOG_VERSION = '0.39.1';
 const MODULE = 'beast_log';
 let LAST_ERROR = '';
 try { console.log('[비스트로그] script loaded v' + BEASTLOG_VERSION); } catch (e) { /* noop */ }
@@ -186,6 +186,7 @@ function buildQuestPrompt() {
     return `너는 RP 주인공({{char}})에게 줄 "퀘스트"(목표+보상)를 하나 만든다.
 ${getScene()}규칙:
 - 목표(goal)는 이 RP 안에서 {{char}}/유저의 행동·대사로 달성 가능한 것. 시스템이 강제하는 게 아니라, 대화하다 보면 일어날 법한 일.
+- **goal은 짧은 한 문장으로 깔끔하게 끝맺어라.** 데드팬이라 약간 길어도 되지만, "~하고, ~하며, ~을 묵묵히…" 식으로 절을 줄줄이 잇지 마라. 한 동작/한 상황으로 압축. (대략 40자 안쪽 권장, 절대 문단 금지)
 - 이번 퀘스트는 "${pick(QUEST_FLAVORS)}" 쪽 방향으로 잡아라. 매번 색깔이 다르게, 진부하지 않게.
 - 다양한 예시 결: "{{char}}에게 바보라고 불리기", "길에서 쓸모없는 물건 하나 줍기", "{{char}}를 말문 막히게 하기", "모르는 사람에게 말 걸기", "{{char}}가 먼저 웃게 만들기", "이 장소에서 이상한 것 하나 발견하기", "{{char}} 앞에서 크게 망신당하기" 등 — 단, 위는 예시일 뿐 그대로 베끼지 말고 지금 장면에 맞는 새 걸 지어라.
 - 너무 거창/추상(세계 구하기 등) 금지. 한 장면~몇 턴 안에 자연스럽게 될 소소한 것. 데드팬·엉뚱 유머. 한국어.
@@ -262,7 +263,7 @@ function normalizeQuest(o) {
     let reward = null;
     if (rt === 'money') { let m = parseInt(o.reward, 10); reward = Number.isFinite(m) ? Math.max(10000, Math.min(100000, m)) : 30000; }
     else if (rt === 'item') { reward = String(o.reward || '수상한 물건').slice(0, 30); }
-    return { id: cryptoId(), goal: String(o.goal || '뭔가 해내기').slice(0, 80), emoji: String(o.emoji || '🎯').slice(0, 4), rewardType: rt, reward, time: nowHHMM() };
+    return { id: cryptoId(), goal: String(o.goal || '뭔가 해내기').slice(0, 140), emoji: String(o.emoji || '🎯').slice(0, 4), rewardType: rt, reward, time: nowHHMM() };
 }
 async function onNewQuest() {
     if (_blBusy) return;
