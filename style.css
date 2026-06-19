@@ -210,6 +210,8 @@
 .bl-data-reset, .bl-main-reset { width: 100%; font-family: var(--bl-chrome); font-size: 11px; color: #9A4A3A; background: #F3E2DC; border: 2px solid #E3C3BA; border-radius: 9px; padding: 11px; cursor: pointer; }
 .bl-theme-row { margin-bottom: 11px; }
 .bl-philo { font-size: 10.5px; line-height: 1.55; color: var(--bl-ink-soft); background: var(--bl-card2); border: 1.5px dashed var(--bl-edge); border-radius: 9px; padding: 9px 11px; margin-bottom: 11px; }
+.bl-cd-note { font-size: 10px; color: var(--bl-ink-soft); background: var(--bl-card); border: 1.5px solid var(--bl-line); border-radius: 9px; padding: 9px 11px; margin-bottom: 11px; }
+.bl-cd-note b { color: var(--bl-point-d); }
 .bl-philo b { color: var(--bl-point-d); }.bl-theme-lbl { display: block; font-family: var(--bl-chrome); font-size: 10px; color: var(--bl-point-d); margin-bottom: 7px; }
 .bl-theme-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .bl-theme-btn { font-family: var(--bl-chrome); font-size: 10px; color: var(--bl-ink); background: var(--bl-card); border: 2px solid var(--bl-line); border-radius: 9px; padding: 10px 6px; cursor: pointer; }
@@ -231,6 +233,8 @@
 .bl-pet-xpbar { height: 8px; background: var(--bl-line); border-radius: 4px; overflow: hidden; }
 .bl-pet-xpbar i { display: block; height: 100%; width: 0; background: var(--bl-point-d); border-radius: 4px; transition: width .4s; }
 .bl-pet-stats { font-family: var(--bl-chrome); font-size: 10px; color: var(--bl-ink-soft); margin-top: 8px; }
+.bl-feed { display: block; width: 100%; margin-top: 9px; font-family: var(--bl-chrome); font-size: 11px; color: var(--bl-btn-ink); background: var(--bl-btn2); border: 2px solid var(--bl-edge); border-radius: 10px; padding: 10px; cursor: pointer; box-shadow: 1px 2px 0 var(--bl-shadow); }
+.bl-feed:active { transform: translate(1px,1px); box-shadow: none; }
 .bl-pet-stats b { color: var(--bl-ink); }
 .bl-pet-title { color: var(--bl-point-d); }
 .bl-pet-pick { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 10px; }

@@ -1,7 +1,7 @@
-// 🐯 비스트로그 (Beast Log) v0.33.0-beta — 독창성 못박기: 인게임 누적이 코어(항상), RP 주입은 선택(기본 OFF). 'RP→인게임→원하면 회상' 철학. 회상 시 감회 묻어나되 비강제
+// 🐯 비스트로그 (Beast Log) v0.34.0-beta — 레벨 양방향(XP 깎이면 다운) + 스탯 0~5 확장 + 🍖밥주기(채움) + 출현·알바 텀 랜덤2~4(텀입력 제거) + 테마명 변경(민트→말차/딸기우유→벚꽃)
 // 버전 3곳 동시 갱신: (1) 이 주석, (2) BEASTLOG_VERSION, (3) manifest.json
 
-const BEASTLOG_VERSION = '0.33.0';
+const BEASTLOG_VERSION = '0.34.0';
 const MODULE = 'beast_log';
 let LAST_ERROR = '';
 try { console.log('[비스트로그] script loaded v' + BEASTLOG_VERSION); } catch (e) { /* noop */ }
@@ -90,8 +90,8 @@ function spriteSVG(key, size, mono, expr) {
 }
 function stateExpr() {
     if (STATE.hp <= 1) return 'tired';
-    if (STATE.mood <= 0) return 'sad';
-    if (STATE.mood >= 3 && STATE.hunger >= 2) return 'happy';
+    if (STATE.mood <= 1) return 'sad';
+    if (STATE.mood >= 4 && STATE.hunger >= 3) return 'happy';
     return 'open';
 }
 function mascotSVG(size, expr) { return spriteSVG(EXT.mascot, size, EXT.spriteMono === true, expr || stateExpr()); }
@@ -185,13 +185,23 @@ function applyJob(job) {
     STATE.jobs.unshift(job);
     if (STATE.jobs.length > 30) STATE.jobs.length = 30;
     STATE.lastJobTurn = getChatLen();
-    STATE.jobCD = 2 + Math.floor(Math.random() * 4);   // 다음 알바까지 2~5회 랜덤
-    STATE.hunger = clamp03((STATE.hunger == null ? 3 : STATE.hunger) - 1);
+    STATE.jobCD = 2 + Math.floor(Math.random() * 3);   // 다음 알바까지 2~4회 랜덤
+    STATE.hunger = clamp05((STATE.hunger == null ? 4 : STATE.hunger) - 1);   // 알바 → 배고파짐
+    if (Math.random() < 0.35) STATE.hp = clamp05((STATE.hp == null ? 5 : STATE.hp) - 1);   // 가끔 고된 노동 → 체력↓
     saveState(STATE); renderAll();
     showJobResult(job);
 }
 function deleteJob(id) { STATE.jobs = (STATE.jobs || []).filter(j => j.id !== id); saveState(STATE); renderFull(); }
 function clearJobs() { showConfirm('알바 내역 비우기', '알바 기록을 전부 지울까요? (돈은 그대로)', () => { STATE.jobs = []; STATE.lastJob = null; saveState(STATE); renderAll(); }); }
+const FEED_FOOD = ['편의점 삼각김밥', '길에서 주운 붕어빵', '유통기한 임박 소시지', '수상한 통조림', '사장이 남긴 식은 치킨', '정체불명의 사료', '눅눅한 새우깡', '반쯤 녹은 아이스크림', '누가 흘린 호두과자'];
+function onFeed() {
+    if (STATE.hunger >= 5 && STATE.hp >= 5 && STATE.mood >= 5) { flash('이미 배부르고 쌩쌩하다'); return; }
+    STATE.hunger = clamp05((STATE.hunger || 0) + 2);
+    STATE.hp = clamp05((STATE.hp || 0) + 1);
+    STATE.mood = clamp05((STATE.mood || 0) + 1);
+    saveState(STATE); renderAll();
+    flash(`🍖 '${pick(FEED_FOOD)}'을(를) 먹였다`);
+}
 function resetMoney() { showConfirm('돈 리셋', `보유 금액 ${fmtMoney(STATE.money)}을(를) 0원으로 되돌릴까요?`, () => { STATE.money = 0; saveState(STATE); renderAll(); flash('💰 0원으로 리셋'); }); }
 const DONATE_TO = ['길고양이 급식소', '동네 비둘기 연합', '사장님 외제차 기름값', '익명의 너구리', '폐지 줍는 어르신', '유기견 보호소', '바다거북 구조대', '수상한 종교 단체', '나무 심기 운동', '정체불명의 모금함', '옆자리 다람쥐', '세계 평화 기금'];
 function onDonate() {
@@ -265,7 +275,7 @@ const STATE_KEY = 'beast_log_state';
 function defaultState() {
     return {
         uuid: cryptoId(), level: 1, xp: 0, title: '갓 들어온 손님', rep: 0,
-        mood: 3, hunger: 3, hp: 3,
+        mood: 4, hunger: 4, hp: 5,
         items: [], encounters: [], npcs: {},
         currentNpc: null, currentSituation: null,
         money: 0, owned: ['tiger', 'cat', 'dog'], lastJobTurn: -99, lastJob: null, jobs: [], jobs: [],
@@ -343,9 +353,9 @@ function resetAll() {
 
 // ── 텀 ──
 function getChatLen() { const c = getCtx(); return (c && Array.isArray(c.chat)) ? c.chat.length : 0; }
-function injectRemaining() { return Math.max(0, (EXT.cooldownTurns || 0) - (getChatLen() - STATE.lastInjectTurn)); }
+function injectRemaining() { const cd = (STATE.injectCD == null ? 3 : STATE.injectCD); return Math.max(0, cd - (getChatLen() - STATE.lastInjectTurn)); }
 function canInject() { return injectRemaining() <= 0; }
-function markInject() { STATE.lastInjectTurn = getChatLen(); saveState(STATE); renderAll(); }
+function markInject() { STATE.lastInjectTurn = getChatLen(); STATE.injectCD = 2 + Math.floor(Math.random() * 3); saveState(STATE); renderAll(); }
 function getProfiles() {
     const ctx = getCtx();
     const cm = (ctx && ctx.extensionSettings && ctx.extensionSettings.connectionManager) || null;
@@ -618,10 +628,12 @@ function applyOutcome(item, choiceLabel, outcome, kind) {
     }
     if (item.category === 'situation') STATE.currentSituation = { emoji: item.emoji, title: item.title };
 
-    if (outcome.rep > 0) STATE.mood = clamp03(STATE.mood + 1);
-    else if (outcome.rep < 0) STATE.mood = clamp03(STATE.mood - 1);
-    if (kind === 'attack') STATE.hp = clamp03(STATE.hp - 1);
-    if (STATE.encounters.length % 3 === 0) STATE.hunger = clamp03(STATE.hunger - 1);
+    // ── 스탯 변화 (조우) ──
+    if (outcome.rep > 0) STATE.mood = clamp05(STATE.mood + 1);          // 좋은 조우 → 기분↑
+    else if (outcome.rep < 0) STATE.mood = clamp05(STATE.mood - 1);     // 나쁜 조우 → 기분↓
+    if (kind === 'attack') { STATE.hp = clamp05(STATE.hp - 1); STATE.mood = clamp05(STATE.mood - 1); }  // 싸움 → 체력·기분↓
+    if (STATE.encounters.length % 3 === 0) STATE.hunger = clamp05(STATE.hunger - 1);                     // 활동하면 배고파짐
+    if (STATE.hunger <= 0) { STATE.mood = clamp05(STATE.mood - 1); STATE.hp = clamp05(STATE.hp - 1); }   // 굶으면 방치 페널티
 
     levelCheck();
     saveState(STATE);
@@ -629,8 +641,13 @@ function applyOutcome(item, choiceLabel, outcome, kind) {
     refreshMemory();
     showResultPopup(entry);
 }
-function clamp03(n) { return Math.max(0, Math.min(3, n)); }
-function levelCheck() { const need = STATE.level * 100; if (STATE.xp >= need) { STATE.xp -= need; STATE.level += 1; flash(`⭐ 레벨업! Lv.${STATE.level}`); } }
+function clamp05(n) { return Math.max(0, Math.min(5, n)); }
+function levelCheck() {
+    let need = STATE.level * 100;
+    while (STATE.xp >= need) { STATE.xp -= need; STATE.level += 1; flash(`⭐ 레벨업! Lv.${STATE.level}`); need = STATE.level * 100; }
+    while (STATE.xp < 0 && STATE.level > 1) { STATE.level -= 1; STATE.xp += STATE.level * 100; flash(`💧 레벨 다운… Lv.${STATE.level}`); }
+    if (STATE.xp < 0) STATE.xp = 0;   // Lv.1 바닥
+}
 
 // ── 정리/삭제 ──
 function deleteEncounter(id) { STATE.encounters = STATE.encounters.filter(x => x.id !== id); saveState(STATE); renderFull(); refreshMemory(); }
@@ -744,7 +761,7 @@ function setInjectDefault(v) { STATE.settings.injectDefault = v; saveState(STATE
 function setAutoDetect(v) { EXT.autoDetect = v; saveExt(); syncControls(); }
 function setChain(v) { EXT.chainOn = v; saveExt(); syncControls(); }
 function setSpriteMono(v) { EXT.spriteMono = v; saveExt(); renderAll(); syncControls(); }
-const BL_THEMES = [{ k: 'pudding', label: '🍮 푸딩' }, { k: 'mint', label: '🌿 민트' }, { k: 'strawberry', label: '🍓 딸기우유' }, { k: 'dawn', label: '🌌 새벽하늘' }];
+const BL_THEMES = [{ k: 'pudding', label: '🍮 푸딩' }, { k: 'mint', label: '🍵 말차' }, { k: 'strawberry', label: '🌸 벚꽃' }, { k: 'dawn', label: '🌌 새벽하늘' }];
 function applyTheme() {
     const t = (EXT && EXT.theme) || 'pudding';
     const root = document.documentElement;
@@ -766,7 +783,7 @@ function syncControls() {
 }
 function pickMascot(key) { if (MASCOTS[key] && ownsMascot(key)) { EXT.mascot = key; saveExt(); renderAll(); } }
 function cycleMascot() { const owned = MASCOT_KEYS.filter(ownsMascot); if (!owned.length) return; const i = owned.indexOf(EXT.mascot); EXT.mascot = owned[(i + 1) % owned.length]; saveExt(); renderAll(); }
-function pips(emoji, n) { return emoji.repeat(Math.max(0, n)) + '·'.repeat(Math.max(0, 3 - n)); }
+function pips(emoji, n) { return emoji.repeat(Math.max(0, n)) + '·'.repeat(Math.max(0, 5 - n)); }
 function npcLine() {
     if (!STATE.currentNpc || !STATE.npcs[STATE.currentNpc]) return '<span class="bl-slot-empty">아무도 없음</span>';
     const n = STATE.npcs[STATE.currentNpc];
@@ -948,6 +965,7 @@ function buildFull() {
             </div>
             <div class="bl-pet-xptext num"></div><div class="bl-pet-xpbar"><i></i></div>
             <div class="bl-pet-stats">⭐ <b class="num bl-pet-rep"></b> · 💰 <b class="num bl-pet-money"></b> · 🎒 <b class="num bl-pet-items"></b> · <span class="bl-pet-title"></span></div>
+            <button class="bl-feed">🍖 밥 주기</button>
             <div class="bl-pet-pick"></div>
           </div>
           <div class="bl-slots">
@@ -994,7 +1012,7 @@ function buildFull() {
               <label><span>🌱 기억을 RP에 흘리기 <small>(선택) — 켜면 쌓인 NPC·일지를 캐릭터가 대화 중 가끔 자연스럽게 떠올려요. 강제 등장 X, 그냥 슬쩍</small></span><input type="checkbox" class="bl-t-inject"></label>
               <label><span>🔗 조우 체인 <small>(켜면 조우가 랜덤 2~3단계로 이어짐 / 끄면 1번에 끝)</small></span><input type="checkbox" class="bl-t-chain"></label>
               <label><span>🎨 마스코트 흑백(도트라인)</span><input type="checkbox" class="bl-t-mono"></label>
-              <label><span>📥 자동 출현 <small>(켜면 RP 상대 답장마다 "텀" 간격을 지켜 조우가 저절로 뜸 / 끄면 출현 버튼으로 직접)</small></span><input type="checkbox" class="bl-t-auto"></label>
+              <label><span>📥 자동 출현 <small>(켜면 RP 상대 답장마다 랜덤 2~4회 간격으로 조우가 저절로 뜸 / 끄면 출현 버튼으로 직접)</small></span><input type="checkbox" class="bl-t-auto"></label>
             </div>
             <div class="bl-theme-row">
               <span class="bl-theme-lbl">🎨 테마</span>
@@ -1002,7 +1020,7 @@ function buildFull() {
                 ${BL_THEMES.map(t => `<button class="bl-theme-btn" data-theme="${t.k}">${t.label}</button>`).join('')}
               </div>
             </div>
-            <div class="bl-cd-row"><span>텀 (알바·자동 간격)</span><input type="number" class="bl-cd-input" min="0" max="20"><span>턴</span></div>
+            <div class="bl-cd-note">⏱️ 출현·알바 간격은 매번 <b>랜덤 2~4회</b>로 자동 조절돼요.</div>
             <div class="bl-data-sec">
               <div class="bl-data-ttl">💾 데이터</div>
               <div class="bl-data-btns">
@@ -1027,7 +1045,6 @@ function buildFull() {
     fullEl.querySelector('.bl-t-chain').addEventListener('change', e => setChain(e.target.checked));
     fullEl.querySelector('.bl-t-mono').addEventListener('change', e => setSpriteMono(e.target.checked));
     fullEl.querySelector('.bl-t-auto').addEventListener('change', e => setAutoDetect(e.target.checked));
-    fullEl.querySelector('.bl-cd-input').addEventListener('change', e => { EXT.cooldownTurns = Math.max(0, parseInt(e.target.value, 10) || 0); saveExt(); renderAll(); });
     fullEl.querySelector('.bl-roll2').addEventListener('click', onAppear);
     fullEl.querySelector('.bl-rand2').addEventListener('click', onSituation);
     fullEl.querySelectorAll('.bl-acc-head').forEach(h => h.addEventListener('click', e => { if (e.target.closest('.bl-clear-btn')) return; h.parentElement.classList.toggle('collapsed'); }));
@@ -1037,6 +1054,7 @@ function buildFull() {
     fullEl.querySelector('.bl-pet-pick').addEventListener('click', e => { const b = e.target.closest('.bl-pick-btn'); if (b) pickMascot(b.dataset.m); });
     fullEl.querySelector('.bl-work-go').addEventListener('click', onWork);
     fullEl.querySelector('.bl-donate').addEventListener('click', onDonate);
+    { const fb = fullEl.querySelector('.bl-feed'); if (fb) fb.addEventListener('click', onFeed); }
     fullEl.querySelector('.bl-jobs-clear').addEventListener('click', e => { e.stopPropagation(); clearJobs(); });
     fullEl.querySelector('.bl-jobs-list').addEventListener('click', e => { const b = e.target.closest('.bl-job-del'); if (b) deleteJob(b.dataset.id); });
     fullEl.querySelector('.bl-main-reset').addEventListener('click', resetAll);
@@ -1163,7 +1181,6 @@ function renderFull() {
     fullEl.querySelector('.bl-t-chain').checked = EXT.chainOn !== false;
     fullEl.querySelector('.bl-t-mono').checked = EXT.spriteMono === true;
     fullEl.querySelector('.bl-t-auto').checked = EXT.autoDetect;
-    fullEl.querySelector('.bl-cd-input').value = EXT.cooldownTurns;
     { const ct = EXT.theme || 'pudding'; fullEl.querySelectorAll('.bl-theme-btn').forEach(b => b.classList.toggle('on', b.dataset.theme === ct)); }
 
     fullEl.querySelector('.bl-enc-cnt').textContent = STATE.encounters.length + '건';
