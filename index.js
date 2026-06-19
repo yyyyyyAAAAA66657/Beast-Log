@@ -1,7 +1,7 @@
-// 🐯 비스트로그 (Beast Log) v0.40.0-beta — 디버그 로그 이스터에그: 세팅 드로어에서 '연결 프로필' 5번 탭→디버그 패널 펼침. LLM 호출/에러 자동 기록(최근40), 설정·상태 스냅샷, 📋복사(모바일 폴백 포함)
+// 🐯 비스트로그 (Beast Log) v0.42.0-beta — 퀘스트 강화: 판정에 연속성·맥락 검사(세계관 어긋나는 소환물 불인정) + 목표 주체 다양화(유저뿐 아니라 캐릭터 행동/반응, 장면 전환, NPC 등장 등)
 // 버전 3곳 동시 갱신: (1) 이 주석, (2) BEASTLOG_VERSION, (3) manifest.json
 
-const BEASTLOG_VERSION = '0.40.0';
+const BEASTLOG_VERSION = '0.42.0';
 const MODULE = 'beast_log';
 let LAST_ERROR = '';
 const DBG_LOG = [];
@@ -182,7 +182,7 @@ ${getScene()}규칙:
 [대화 맥락]
 ${getConvo()}`;
 }
-const QUEST_FLAVORS = ['엉뚱하고 사소한 행동 도전', '{{char}}와의 관계·감정이 얽힌 것', '주변을 관찰하거나 탐험하는 것', '뭔가 줍거나 손에 넣는 것', '말장난·대화로 승부 보는 것', '용기 내거나 민망함을 무릅쓰는 것', '{{char}}의 의외의 반응을 끌어내는 것', '주인공 자신의 사소한 습관·실수에 관한 것', '둘 사이 분위기를 바꾸는 것', '하찮지만 묘하게 어려운 것'];
+const QUEST_FLAVORS = ['유저가 직접 하는 엉뚱하고 사소한 행동', '{{char}}에게서 특정 반응·대사·표정을 끌어내기', '{{char}}가 먼저 어떤 행동을 하게 만들기', '장면이 다른 장소나 분위기로 넘어가게 만들기', '새로운 NPC(제3자)가 끼어들거나 그와 엮이기', '{{char}}와의 관계·감정이 한 발 움직이는 순간', '주변 환경/배경에서 사소한 사건이 벌어지기', '그 장소에 있을 법한 물건을 줍거나 손에 넣기', '말장난·대화로 {{char}}를 한 방 먹이기', '용기 내거나 민망함을 무릅쓰는 것'];
 function recentQuestsHint() {
     const goals = [];
     (STATE.quests || []).forEach(q => goals.push(q.goal));
@@ -196,7 +196,9 @@ ${getScene()}규칙:
 - 목표(goal)는 이 RP 안에서 {{char}}/유저의 행동·대사로 달성 가능한 것. 시스템이 강제하는 게 아니라, 대화하다 보면 일어날 법한 일.
 - **goal은 짧은 한 문장으로 깔끔하게 끝맺어라.** 데드팬이라 약간 길어도 되지만, "~하고, ~하며, ~을 묵묵히…" 식으로 절을 줄줄이 잇지 마라. 한 동작/한 상황으로 압축. (대략 40자 안쪽 권장, 절대 문단 금지)
 - 이번 퀘스트는 "${pick(QUEST_FLAVORS)}" 쪽 방향으로 잡아라. 매번 색깔이 다르게, 진부하지 않게.
-- 다양한 예시 결: "{{char}}에게 바보라고 불리기", "길에서 쓸모없는 물건 하나 줍기", "{{char}}를 말문 막히게 하기", "모르는 사람에게 말 걸기", "{{char}}가 먼저 웃게 만들기", "이 장소에서 이상한 것 하나 발견하기", "{{char}} 앞에서 크게 망신당하기" 등 — 단, 위는 예시일 뿐 그대로 베끼지 말고 지금 장면에 맞는 새 걸 지어라.
+- **목표의 '주체'를 다양하게 — 유저가 직접 하는 것만이 아니라:** {{char}}가 어떤 말·행동을 하게 만들기, {{char}}에게서 특정 반응을 받아내기, 장면이 다른 곳/분위기로 넘어가기, 새 NPC가 끼어들거나 그와 엮이기, 배경에서 사건이 벌어지기 등 — 화살표를 여러 방향으로 돌려라.
+- **반드시 지금 세계관·장소·상황에 자연스럽게 들어맞는 목표여야 한다.** 그 장면에 있을 법하지 않은 소품·장소·인물을 요구하지 마라(좁은 자취방인데 럭비공·말[馬]을 찾으라는 식 금지). 거기 실제로 있을 법한 것으로만.
+- 다양한 예시 결: "{{char}}가 먼저 화제를 돌리게 만들기", "{{char}}에게서 '고맙다'는 말 듣기", "둘이 다른 방으로 자리를 옮기기", "지나가던 누군가가 말을 걸게 하기", "{{char}}를 말문 막히게 하기", "이 방에 있을 법한 물건으로 장난치기" 등 — 위는 예시일 뿐, 지금 장면에 맞는 새 걸 지어라.
 - 너무 거창/추상(세계 구하기 등) 금지. 한 장면~몇 턴 안에 자연스럽게 될 소소한 것. 데드팬·엉뚱 유머. 한국어.
 - 보상(rewardType): 대부분 "money"(1만~10만). 가끔 "item"(엉뚱한 물건). 관계·감정이 얽힌 목표면 가끔 "secret"({{char}}의 의외의 비밀, 달성 시 공개).${recentQuestsHint()}
 형식(JSON만, 코드펜스 금지): {"goal":"목표 한 줄","emoji":"목표 이모지 하나","rewardType":"money|item|secret","reward":money면 정수·item이면 "물건이름"·secret이면 null}
@@ -205,8 +207,12 @@ ${getConvo()}`;
 }
 function buildQuestCheckPrompt(q) {
     return `아래 "목표"가 최근 RP 대화에서 실제로 달성됐는지 엄격하게 판정해라. 어설프게 인정하지 말 것 — 정황상 분명히 일어났을 때만 done:true.
+판정 기준:
+- 말·관찰만으로는 부족하다. 목표가 요구하는 일이 실제로 일어났는지 봐라.
+- **연속성·맥락을 본다:** 달성 과정에 세계관·장소·상황과 어긋나는 게 끼면(좁은 자취방에 난데없이 럭비공이 튀어나오는 식, 그 장면에 있을 리 없는 소품·인물이 갑자기 등장) 인정하지 마라. 그 자리에 자연스럽게 있을 법한 것으로 이뤄져야 한다.
+- 억지로 끼워맞춘 전개, 맥락 없이 편의상 소환된 물건/사건은 불인정.
 목표: "${q.goal}"
-${getScene()}판정 형식(JSON만): {"done":true 또는 false,"reason":"한 줄 근거","secret":${q.rewardType === 'secret' ? '달성됐다면 이 RP 맥락에 맞는 {{char}}의 의외의 비밀 한 줄, 아니면 null' : 'null'}}
+${getScene()}판정 형식(JSON만): {"done":true 또는 false,"reason":"왜 됐는지/안 됐는지 한 문장으로 짧고 완결되게 (대략 40자 이내, 중간에 끊기지 않게)","secret":${q.rewardType === 'secret' ? '달성됐다면 이 RP 맥락에 맞는 {{char}}의 의외의 비밀 한 줄, 아니면 null' : 'null'}}
 [대화 맥락]
 ${getConvo()}`;
 }
@@ -298,7 +304,7 @@ async function onCheckQuest(id) {
         const txt = await llmGenerate(buildQuestCheckPrompt(q), 1024);
         closePopup(); const r = parseLLMJson(txt) || {};
         if (r.done) completeQuest(q, r.secret);
-        else showQuestFail(q, String(r.reason || '').slice(0, 50));
+        else showQuestFail(q, String(r.reason || '').slice(0, 140));
     } catch (err) { closePopup(); if (!handleLlmError(err)) flash('확인 실패, 다시 시도'); }
     finally { _blBusy = false; }
 }
@@ -412,7 +418,7 @@ const AFTER_POOL = ['며칠 뒤, 그 사람은 당신을 꽤 괜찮은 사람으
 function rollAfter() { return Math.random() < 0.18 ? pick(AFTER_POOL) : null; }
 
 // ── 전역 설정 ──
-function defaultExt() { return { connectionProfile: '', autoDetect: false, cooldownTurns: 3, mascot: 'tiger', contextDepth: 'balance', consolePos: null, chainOn: true, spriteMono: false, theme: 'pudding' }; }
+function defaultExt() { return { connectionProfile: '', autoDetect: false, cooldownTurns: 3, mascot: 'tiger', contextDepth: 'balance', consolePos: null, bubblePos: null, chainOn: true, spriteMono: false, theme: 'pudding' }; }
 let EXT = defaultExt();
 function loadExt() {
     const ctx = getCtx();
@@ -1416,20 +1422,60 @@ function hideHud() { if (consoleEl) consoleEl.style.display = 'none'; if (fullEl
 function renderAll() { renderConsole(); if (fullEl) renderFull(); if (bubbleEl) bubbleEl.innerHTML = mascotSVG(34); }
 
 let bubbleEl = null;
+let _bubbleMoved = false;
 function buildBubble() {
     if (bubbleEl) return;
     bubbleEl = document.createElement('div');
     bubbleEl.id = 'beastlog-bubble';
-    bubbleEl.title = '비스트로그 열기';
-    Object.assign(bubbleEl.style, { position: 'fixed', zIndex: '2147483000', display: 'none' });
+    bubbleEl.title = '비스트로그 (드래그로 이동)';
+    Object.assign(bubbleEl.style, { position: 'fixed', zIndex: '2147483000', display: 'none', touchAction: 'none' });
     (document.documentElement || document.body).appendChild(bubbleEl);
-    bubbleEl.addEventListener('click', showMini);
+    bubbleEl.addEventListener('click', () => { if (_bubbleMoved) { _bubbleMoved = false; return; } showMini(); });
+    setupBubbleDrag();
+}
+function setupBubbleDrag() {
+    let active = false, sx = 0, sy = 0, baseL = 0, baseT = 0;
+    const onDown = e => {
+        active = true; _bubbleMoved = false;
+        sx = e.clientX; sy = e.clientY;
+        const r = bubbleEl.getBoundingClientRect(); baseL = r.left; baseT = r.top;
+        try { bubbleEl.setPointerCapture(e.pointerId); } catch (er) { /* noop */ }
+    };
+    const onMove = e => {
+        if (!active) return;
+        const dx = e.clientX - sx, dy = e.clientY - sy;
+        if (!_bubbleMoved && Math.abs(dx) + Math.abs(dy) > 5) _bubbleMoved = true;
+        if (_bubbleMoved) {
+            e.preventDefault();
+            const sz = bubbleEl.offsetWidth || 52;
+            const nl = Math.max(2, Math.min(window.innerWidth - sz - 2, baseL + dx));
+            const nt = Math.max(2, Math.min(window.innerHeight - sz - 2, baseT + dy));
+            bubbleEl.style.left = nl + 'px'; bubbleEl.style.top = nt + 'px';
+            bubbleEl.style.right = 'auto'; bubbleEl.style.bottom = 'auto';
+        }
+    };
+    const onUp = () => {
+        if (!active) return; active = false;
+        if (_bubbleMoved) { EXT.bubblePos = { left: parseInt(bubbleEl.style.left, 10), top: parseInt(bubbleEl.style.top, 10) }; saveExt(); }
+    };
+    bubbleEl.addEventListener('pointerdown', onDown);
+    bubbleEl.addEventListener('pointermove', onMove, { passive: false });
+    bubbleEl.addEventListener('pointerup', onUp);
+    bubbleEl.addEventListener('pointercancel', onUp);
 }
 function positionBubble() {
     if (!bubbleEl) return;
     const sz = bubbleEl.offsetWidth || 52;
-    bubbleEl.style.left = Math.max(4, window.innerWidth - sz - 12) + 'px';
-    bubbleEl.style.top = Math.max(4, window.innerHeight - sz - 16) + 'px';
+    const bp = EXT.bubblePos;
+    let l, t;
+    if (bp && typeof bp.left === 'number' && typeof bp.top === 'number') {
+        l = Math.max(2, Math.min(window.innerWidth - sz - 2, bp.left));   // 저장된 위치(뷰포트 안으로 클램프)
+        t = Math.max(2, Math.min(window.innerHeight - sz - 2, bp.top));
+    } else {
+        l = Math.max(4, window.innerWidth - sz - 12);                     // 기본: 우하단
+        t = Math.max(4, window.innerHeight - sz - 16);
+    }
+    bubbleEl.style.left = l + 'px'; bubbleEl.style.top = t + 'px';
     bubbleEl.style.right = 'auto'; bubbleEl.style.bottom = 'auto';
 }
 function collapseToBubble() {

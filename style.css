@@ -60,8 +60,8 @@
 .bl-title { font-family: var(--bl-chrome); font-size: 12px; color: var(--bl-btn-ink); }
 .bl-min, .bl-up { font-size: 15px; cursor: pointer; line-height: 1; padding: 2px 3px; }
 .bl-min { color: var(--bl-btn-ink); }
-#beastlog-bubble { width: 52px; height: 52px; border-radius: 50%; background: var(--bl-point); border: 3px solid var(--bl-edge); box-shadow: 2px 3px 0 var(--bl-shadow); display: flex; align-items: center; justify-content: center; line-height: 0; cursor: pointer; animation: bl-bob 2.4s ease-in-out infinite; }
-#beastlog-bubble:active { transform: scale(.92); }
+#beastlog-bubble { width: 52px; height: 52px; border-radius: 50%; background: var(--bl-point); border: 3px solid var(--bl-edge); box-shadow: 2px 3px 0 var(--bl-shadow); display: flex; align-items: center; justify-content: center; line-height: 0; cursor: grab; touch-action: none; -webkit-user-select: none; user-select: none; animation: bl-bob 2.4s ease-in-out infinite; }
+#beastlog-bubble:active { transform: scale(.92); cursor: grabbing; }
 .bl-spacer { flex: 1; }
 .bl-inject { display: flex; align-items: center; gap: 5px; background: var(--bl-card2); border: 2px solid var(--bl-edge); padding: 2px 6px; border-radius: 8px; }
 .bl-lab { font-size: 11px; }
