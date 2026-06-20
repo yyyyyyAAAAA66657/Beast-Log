@@ -1,4 +1,4 @@
-// 🐯 비스트로그 (Beast Log) v0.48.0 — 다마고치 강화: 상태 0~100%(기분·배고픔·체력)로 통일+표시, 배고픔 2시간당 -10% 자동감소(채팅 중), 바닥 시 기분·체력 연쇄+레벨다운(진화해제, 죽음X). 표정: 슬픔→눈물(ㅠㅠ), 자는 표정(큰 Z 2개 둥실+몸 호흡) 추가(유휴+상태양호 시 랜덤, 건드리면 깨움). 병아리·판다도 전용 표정(판다 잠=반픽셀 흰자). 밥: 60%까지 무료+이상은 유료 랜덤먹이(1만/1.5만/2만). 퀘스트 XP보상 추가. 레벨 XP 제곱곡선(화면엔 0~100%). 도감 관계표시 키움
+// 🐯 비스트로그 (Beast Log) v0.48.0 — 다마고치 강화: 상태 0~100%(😊기분·🍖배고픔·⚡체력) 통일+표시, 배고픔 3시간당 -8% 자동감소(오프라인 상한). 표정: 슬픔→눈물(또르르), 자는 표정(채팅 2분 없으면 잔잔히 호흡+zzz, 채팅/조작 시 깸). 병아리·판다 전용 표정. 밥: 60%까지 무료+이상은 유료 메뉴 고정(구매 전까지 안 바뀜). 퀘스트 XP보상. 레벨 XP 제곱곡선(천천히, 화면 0~100%). 마이그레이션 안전화(정상 상태 오변환 수정)
 // 버전 3곳 동시 갱신: (1) 이 주석, (2) BEASTLOG_VERSION, (3) manifest.json
 
 const BEASTLOG_VERSION = '0.48.0';
@@ -235,20 +235,27 @@ function stateExpr() {
     if (mood >= 60) return 'happy';     // 😊 기분 좋음
     return 'open';                      // 😐 평온(기본)
 }
-function mascotSVG(size, expr) { return spriteSVG(EXT.mascot, size, EXT.spriteMono === true, expr || stateExpr(), evoTier(STATE.level)); }
-function setMascotEls(expr) {
-    const mono = EXT.spriteMono === true, tier = evoTier(STATE.level);
-    if (consoleEl) { const e = consoleEl.querySelector('.bl-pet-emoji-mini'); if (e) e.innerHTML = spriteSVG(EXT.mascot, 30, mono, expr, tier); }
-    if (fullEl && fullEl.style.display !== 'none') { const e = fullEl.querySelector('.bl-pet-emoji'); if (e) e.innerHTML = spriteSVG(EXT.mascot, 72, mono, expr, tier); }
-    if (bubbleEl && bubbleEl.style.display !== 'none') bubbleEl.innerHTML = spriteSVG(EXT.mascot, 34, mono, expr, tier);
-}
 let blinkTimer = null;
 let lastTouch = Date.now();        // 마지막 상호작용 시각
 let isSleeping = false;            // 졸고 있는 중인지
 let hungerWarnLevel = -1;          // 마지막으로 띄운 배고픔 경고 단계 (-1 없음, 0 = 20%경고, 1 = 0%경고)
-const SLEEP_QUIET_MS = 90000;      // 90초 조용하면 졸 수 있음
-const HUNGER_DECAY_MS = 2 * 60 * 60 * 1000;  // 2시간당
-const HUNGER_DECAY_AMT = 10;       // -10%
+function mascotSVG(size, expr) { return spriteSVG(EXT.mascot, size, EXT.spriteMono === true, expr || (isSleeping ? 'sleep' : stateExpr()), evoTier(STATE.level)); }
+function setMascotEls(expr) {
+    const mono = EXT.spriteMono === true, tier = evoTier(STATE.level);
+    const sleeping = (expr === 'sleep');
+    const apply = (host, size) => {
+        if (!host) return;
+        host.innerHTML = spriteSVG(EXT.mascot, size, mono, expr, tier);
+        host.classList.toggle('bl-host-sleeping', sleeping);   // 자는 동안 컨테이너 두둥실 끔
+    };
+    if (consoleEl) apply(consoleEl.querySelector('.bl-pet-emoji-mini'), 30);
+    if (fullEl && fullEl.style.display !== 'none') apply(fullEl.querySelector('.bl-pet-emoji'), 72);
+    if (bubbleEl && bubbleEl.style.display !== 'none') apply(bubbleEl, 34);
+}
+const SLEEP_QUIET_MS = 120000;      // 2분간 채팅·조작 없으면 졸기 시작
+const HUNGER_DECAY_MS = 3 * 60 * 60 * 1000;  // 3시간당
+const HUNGER_DECAY_AMT = 8;        // -8%
+const HUNGER_DECAY_MAX_STEPS = 3;  // 오프라인 누적 상한(한 번에 최대 -24%) — 자고 일어났더니 바닥 방지
 function noteTouch() {
     lastTouch = Date.now();
     if (isSleeping) { isSleeping = false; setMascotEls(stateExpr()); }
@@ -259,13 +266,14 @@ function tickHungerDecay() {
     const now = Date.now();
     const last = STATE.lastHungerDecay || now;
     if (now - last < HUNGER_DECAY_MS) return;
-    const steps = Math.floor((now - last) / HUNGER_DECAY_MS);
+    let steps = Math.floor((now - last) / HUNGER_DECAY_MS);
+    STATE.lastHungerDecay = last + steps * HUNGER_DECAY_MS;   // 타임스탬프는 실제 경과분만큼 갱신
+    steps = Math.min(steps, HUNGER_DECAY_MAX_STEPS);          // 깎이는 양은 상한 (오프라인 폭격 방지)
     STATE.hunger = clamp0100((STATE.hunger == null ? 80 : STATE.hunger) - HUNGER_DECAY_AMT * steps);
-    STATE.lastHungerDecay = last + steps * HUNGER_DECAY_MS;
-    // 배고픔 바닥 → 기분·체력 연쇄
+    // 배고픔 바닥 → 기분·체력 살짝 연쇄 (한 번에 -3씩만, 천천히)
     if (STATE.hunger <= 0) {
-        STATE.mood = clamp0100((STATE.mood || 0) - 5);
-        STATE.hp = clamp0100((STATE.hp || 0) - 5);
+        STATE.mood = clamp0100((STATE.mood || 0) - 3);
+        STATE.hp = clamp0100((STATE.hp || 0) - 3);
     }
     // 셋 다 바닥 → 레벨 하락(진화도 자동 해제) — 죽음·행동불가는 절대 없음
     if (STATE.hunger <= 0 && STATE.hp <= 0 && STATE.mood <= 0 && STATE.level > 1) {
@@ -293,28 +301,31 @@ function maybeHungerWarn() {
     }
 }
 function isSleepy() {
-    if (isSleeping) return true;
     const quiet = (Date.now() - lastTouch) > SLEEP_QUIET_MS;
     const ok = (STATE.hunger || 0) >= 40 && (STATE.hp || 0) >= 40 && (STATE.mood || 0) >= 40;
-    return quiet && ok && Math.random() < 0.2;
+    return quiet && ok;   // 일정 시간 조용 + 상태 양호하면 잔다 (랜덤 제거 → 안 튐)
 }
 function startBlink() {
     if (blinkTimer) return;
     blinkTimer = setInterval(() => {
         if (typeof document !== 'undefined' && document.hidden) return;
         tickHungerDecay();
-        // 졸기 판정 (상태 양호 + 조용 + 랜덤)
+        // 졸기 판정 (상태 양호 + 충분히 조용)
         if (isSleepy()) {
             if (!isSleeping) { isSleeping = true; setMascotEls('sleep'); }
-            return;
+            return;   // 자는 동안엔 깜빡임 안 함 (애니메이션 유지)
         }
+        if (isSleeping) { isSleeping = false; setMascotEls(stateExpr()); return; }   // 깨어남
         if (Math.random() > 0.5) return;
         setMascotEls('blink');
-        setTimeout(() => setMascotEls(stateExpr()), 160);
+        setTimeout(() => { if (!isSleeping) setMascotEls(stateExpr()); }, 160);
     }, 3600);
 }
 function curMascot() { return MASCOTS[EXT.mascot] || MASCOTS.tiger; }
 function evoStage(lv) { const st = curMascot().stages; for (const e of st) { if (lv >= e.min) return e; } return st[st.length - 1]; }
+// 펫 표시 이름: 직접 지은 이름이 있으면 그걸, 없으면 진화 단계명
+function petDisplayName() { return (STATE.petName && STATE.petName.trim()) ? STATE.petName.trim() : evoStage(STATE.level).name; }
+const RENAME_PRICE = 50000;   // 작명소 이용료 (첫 작명은 무료, 이후 변경은 유료 — 함부로 못 바꾸게)
 
 // ── 희귀도 / 아이템 타입 ──
 const RARITY = { common: { label: '일반', dot: '⚪' }, rare: { label: '희귀', dot: '🟢' }, epic: { label: '영웅', dot: '🔵' }, legend: { label: '전설', dot: '🟣' } };
@@ -442,19 +453,26 @@ function onFeed() {
     const hunger = STATE.hunger == null ? 80 : STATE.hunger;
     // 이미 배부름
     if (hunger >= 100) {
+        STATE.pendingFeed = null;
         showNote('🍖 밥 주기', '이미 배가 빵빵하다', '더는 못 먹겠다는 표정으로 고개를 돌린다.');
         return;
     }
     // 무료 구간: 60% 미만이면 무료로 먹임
     if (hunger < FEED_FREE_CAP) {
+        STATE.pendingFeed = null;   // 무료 구간 진입 → 특식 메뉴 리셋
         STATE.hunger = clamp0100(Math.min(FEED_FREE_CAP, hunger + FEED_FREE_GAIN));
         STATE.mood = clamp0100((STATE.mood || 0) + 5);
         saveState(STATE); renderAll();
         showNote('🍖 밥 주기', `'${pick(FEED_FOOD)}'`, pick(FEED_LINE));
         return;
     }
-    // 유료 구간: 60% 이상이면 특식 구매 제안 (랜덤 1종)
-    const menu = pick(FEED_PAID_MENU);
+    // 유료 구간: 60% 이상이면 특식 구매 제안. 한 번 뜬 메뉴는 고정(취소 후 다시 눌러도 동일)
+    let menu = STATE.pendingFeed;
+    if (!menu) {
+        menu = pick(FEED_PAID_MENU);
+        STATE.pendingFeed = menu;   // 메뉴 고정
+        saveState(STATE);
+    }
     const money = STATE.money || 0;
     if (money < menu.price) {
         showNote('🍖 특식 가게', `'${menu.food}' — ${fmtMoney(menu.price)}`, `배고픔 +${menu.gain}%\n돈이 ${fmtMoney(menu.price - money)} 모자란다. 알바라도 뛰자.`);
@@ -465,6 +483,7 @@ function onFeed() {
         STATE.hunger = clamp0100((STATE.hunger || 0) + menu.gain);
         STATE.mood = clamp0100((STATE.mood || 0) + 8);
         STATE.hp = clamp0100((STATE.hp || 0) + 4);
+        STATE.pendingFeed = null;   // 구매 완료 → 메뉴 해제
         saveState(STATE); renderAll();
         showNote('🍖 특식', `'${menu.food}'`, pick(FEED_LINE));
     });
@@ -644,13 +663,13 @@ const STATE_KEY = 'beast_log_state';
 function defaultState() {
     return {
         uuid: cryptoId(), level: 1, xp: 0, title: '갓 들어온 손님', rep: 0,
-        mood: 80, hunger: 80, hp: 100,
+        mood: 80, hunger: 80, hp: 100, petName: '',
         items: [], encounters: [], npcs: {},
         currentNpc: null, currentSituation: null,
         money: 0, owned: ['tiger', 'cat', 'dog'], lastJobTurn: -99, lastJob: null, jobs: [],
         quests: [], secrets: [],
         pins: [],
-        lastInjectTurn: -99, lastHungerDecay: Date.now(),
+        lastInjectTurn: -99, lastHungerDecay: Date.now(), pendingFeed: null,
         statScale: 100,
         settings: { injectDefault: false, hungerWarn: true },
     };
@@ -677,10 +696,15 @@ function loadState() {
     if (!ctx || !ctx.chatMetadata) return defaultState();
     const e = ctx.chatMetadata[STATE_KEY];
     if (e && typeof e === 'object') {
+        const isNew = (e.statScale === 100);   // 원본에 신버전 마커가 있는지 (merge 전 판정)
         const m = Object.assign(defaultState(), e);
         m.settings = Object.assign(defaultState().settings, e.settings || {});
         m.npcs = e.npcs || {};
-        return migrateState(m);
+        if (!isNew) {                          // 구버전(0~5) → 0~100 변환 (한 번만)
+            m.statScale = 0;
+            migrateState(m);
+        }
+        return m;
     }
     const fresh = defaultState();
     ctx.chatMetadata[STATE_KEY] = fresh;
@@ -776,7 +800,7 @@ function resolveByKind(item, kind) {
         activity: { result: '함께함', exp: 2, rep: 0, drop: null, inner: { foe: '그 시간을 나쁘지 않게 보냈다.', user: '당신은 즐거웠다고 인정하긴 싫었을 것이다.' } },
         loot: { result: '주움', exp: 2, rep: 0, drop: { name: '녹슨 숟가락', emoji: '🥄', price: 0 }, inner: { foe: '아무도 안 주운 데는 이유가 있었다.', user: '당신은 왜 주웠는지 모를 것이다.' } },
         interact: { result: '기웃', exp: 1, rep: 0, drop: null, inner: { foe: '별 반응이 없었다.', user: '당신은 괜히 건드렸다 싶었을 것이다.' } },
-        attack: { result: '시비', exp: 2, rep: -1, drop: null, inner: { foe: '상대는 황당해했다. 뭐 이런 게 다 있나.', user: '당신은 왜 그랬는지 스스로도 몰랐을 것이다.' } },
+        attack: { result: '시비', exp: -3, rep: -1, drop: null, inner: { foe: '상대는 황당해했다. 뭐 이런 게 다 있나.', user: '당신은 왜 그랬는지 스스로도 몰랐을 것이다.' } },
     };
     return base[kind] || base.interact;
 }
@@ -892,7 +916,7 @@ ${RULES_FIT}
 ${getScene()}[대화 맥락]
 ${getConvo()}`;
 }
-function buildResolvePrompt(item, choiceLabel, kind, history) {
+function buildResolvePrompt(item, choiceLabel, kind, history, backfire) {
     const hist = (history && history.length)
         ? `이 조우는 여러 박자로 이어졌다:\n${history.map((h, i) => `${i + 1}. ${h.title} → 선택: ${h.choice}`).join('\n')}\n그리고 마지막 선택: ${choiceLabel}\n결과/후일담은 이 전체 흐름을 반영해라.\n`
         : '';
@@ -903,9 +927,12 @@ function buildResolvePrompt(item, choiceLabel, kind, history) {
         relCtx = `[이 대상과의 기존 관계] ${n.nickname || n.name} · 관계: ${n.tier} · ${n.metCount}번째 만남${n.lastPlace ? ` · 주 출몰: ${n.lastPlace}` : ''}${n.state && n.state !== '평범함' ? ` · 최근 상태: ${n.state}` : ''}${n.memory ? ` · 기억: ${stripTags(n.memory)}` : ''}.
 이 관계 단계에 맞게 반응해라 — 차가우면(경계/불신/피함) 상대가 거리를 두거나 경계/회피하고(예: 현금통을 끌어당김, 손을 피해 담장 위로 올라감), 따뜻하면(익숙함/단골) 반갑게 군다. inner.foe와 after에 그 온도가 묻어나야 한다.\n`;
     }
+    const backfireRule = backfire
+        ? `\n★중요(이번 결과는 "예상 못한 역효과"다): 선택 자체는 멀쩡했는데 운 나쁘게/엉뚱하게 일이 꼬여 나쁜 결과가 났다. 선의가 오해를 부르거나, 도우려다 사고가 나거나, 좋게 끝날 줄 알았는데 뒤통수 맞는 식. 억지스럽지 않게, 그 장면에서 "아 그럴 수도 있겠다" 싶은 자연스러운 불운으로. 데드팬하게. 반드시 exp는 음수(-1~-3), rep도 0 이하로 매겨라. result/summary에도 일이 틀어졌음이 드러나게.\n`
+        : '';
     return `RP 이벤트의 "결과"와 "뒷소문"을 만든다.
 이벤트: ${item.title} / 선택: ${choiceLabel} (kind:${kind})
-${relCtx}${hist}규칙: 데드팬 코미디, 한국어. exp=경험치 정수. rep=평판 변화 정수(좋은 행동 +, 괜히 시비/민폐 -). affDelta=관계 변화 정수(없으면 0).
+${relCtx}${hist}${backfireRule}규칙: 데드팬 코미디, 한국어. exp=경험치 정수(좋은/생산적 선택은 +1~4, 시비·민폐 등 나쁜 선택은 -1~-3). rep=평판 변화 정수(좋은 행동 +, 괜히 시비/민폐 -). affDelta=관계 변화 정수(없으면 0).
 inner.foe=상대/주변의 진짜 속내(수치와 어긋나도 됨, 그게 재미). inner.user=유저 속내 추측("~했을지도/~었을 것이다" 식 단정 금지).
 after=가끔만(대개 null) 며칠 뒤 오해/뒷이야기 한 줄. drop=주운 물건 있으면 {name,emoji,price:0}, 없으면 null.
 대상(인물/생물)이 있으면: npcMemory=그 대상에 대해 오래 남을 한 줄 기억(없으면 null), npcState=그 대상의 현재 상태 짧게(없으면 null).
@@ -954,10 +981,12 @@ function normalizeEvent(o, cat) {
 }
 function normalizeOutcome(o, kind) {
     o = o || {};
+    let exp = Number.isFinite(o.exp) ? o.exp : (kind === 'attack' ? -3 : 1);
+    if (kind === 'attack') exp = -Math.abs(exp || 3);   // 나쁜 선택(시비)은 항상 경험치 손해
     return {
         result: String(o.result || '결과'),
         summary: (o.summary && o.summary !== 'null') ? String(o.summary).slice(0, 40) : null,
-        exp: Number.isFinite(o.exp) ? o.exp : 1,
+        exp,
         rep: Number.isFinite(o.rep) ? o.rep : 0,
         affDelta: Number.isFinite(o.affDelta) ? o.affDelta : affinityDelta(kind),
         drop: (o.drop && o.drop.name) ? { name: String(o.drop.name), emoji: String(o.drop.emoji || '📦'), price: o.drop.price || 0 } : null,
@@ -979,15 +1008,18 @@ function handleLlmError(err) {
 }
 
 function applyOutcome(item, choiceLabel, outcome, kind) {
-    STATE.xp += outcome.exp || 0;
+    const rawExp = outcome.exp || 0;
+    const backfireFlag = outcome._backfire === true;
+    const eff = gainXp(rawExp);   // 상태 나쁘면 양수 XP 효율↓ (음수 벌점은 그대로)
     STATE.rep = (STATE.rep || 0) + (outcome.rep || 0);
     const rarity = outcome.drop ? rollRarity() : 'common';
     const itemType = outcome.drop ? rollItemType(rarity) : null;
     const affDelta = item.foe ? (Number.isFinite(outcome.affDelta) ? outcome.affDelta : affinityDelta(kind)) : 0;
+    const shownExp = rawExp > 0 ? Math.max(1, Math.round(rawExp * eff)) : rawExp;   // 실제 반영된 양
     const entry = {
         id: cryptoId(), no: STATE.encounters.length + 1, time: nowHHMM(), category: item.category || 'npc',
         emoji: item.emoji, title: item.title, desc: `${choiceLabel} — ${outcome.result}`, summary: outcome.summary || null,
-        result: outcome.result, exp: outcome.exp, rep: outcome.rep || 0, rarity, affDelta, foe: item.foe || null,
+        result: outcome.result, exp: shownExp, rep: outcome.rep || 0, rarity, affDelta, foe: item.foe || null, backfire: outcome._backfire === true,
         drop: outcome.drop ? outcome.drop.name : null, dropBait: itemType === 'bait',
         inner: outcome.inner, after: (outcome.after || rollAfter()), _noNews: pick(NO_NEWS), revealed: false, open: false,
     };
@@ -1025,10 +1057,15 @@ function applyOutcome(item, choiceLabel, outcome, kind) {
     if (outcome.rep > 0) STATE.mood = clamp0100(STATE.mood + 8);          // 좋은 조우 → 기분↑
     else if (outcome.rep < 0) STATE.mood = clamp0100(STATE.mood - 8);     // 나쁜 조우 → 기분↓
     if (kind === 'attack') { STATE.hp = clamp0100(STATE.hp - 10); STATE.mood = clamp0100(STATE.mood - 8); }  // 싸움 → 체력·기분↓
+    else if (kind !== 'flee' && Math.random() < 0.4) {                    // 회피·시비 외 활동은 가끔 기운 소모
+        STATE.hp = clamp0100(STATE.hp - (2 + Math.floor(Math.random() * 5)));   // 랜덤 -2~-6
+    }
+    if (backfireFlag) STATE.hp = clamp0100(STATE.hp - (3 + Math.floor(Math.random() * 4)));   // 예상 못한 사고 → 체력 추가 -3~-6
     if (STATE.encounters.length % 3 === 0) STATE.hunger = clamp0100(STATE.hunger - 8);                     // 활동하면 배고파짐
     if (STATE.hunger <= 0) { STATE.mood = clamp0100(STATE.mood - 5); STATE.hp = clamp0100(STATE.hp - 5); }   // 굶으면 방치 페널티
 
     levelCheck();
+    if (rawExp > 0 && eff < 1) flash(`💤 컨디션이 나빠 경험치 ${Math.round(eff * 100)}%만…`);   // 방치하면 덜 큼
     saveState(STATE);
     renderAll();
     refreshMemory();
@@ -1036,7 +1073,25 @@ function applyOutcome(item, choiceLabel, outcome, kind) {
 }
 function clamp0100(n) { return Math.max(0, Math.min(100, Math.round(n))); }
 function clamp05(n) { return clamp0100(n); }  // 하위호환 별칭
-function levelNeed(lv) { return Math.round(40 + lv * lv * 10); }   // 제곱 곡선: 초반 빠르고 후반 갈수록 확 느려짐
+// 상태(기분·배고픔·체력 평균)에 따른 경험치 효율 배율 — 잘 돌봐야 잘 큰다 (양수 XP에만 적용)
+function xpEfficiency() {
+    const avg = ((STATE.mood || 0) + (STATE.hunger || 0) + (STATE.hp || 0)) / 3;
+    if (avg >= 70) return 1.0;     // 잘 돌봄 → 풀로
+    if (avg >= 40) return 0.7;     // 보통 → 70%
+    if (avg >= 20) return 0.4;     // 방치 시작 → 40%
+    return 0.1;                    // 막 굶김 → 10% (그래도 0은 아님)
+}
+// 경험치 효율을 반영해 XP 지급 (음수=벌점은 그대로, 양수=보상만 배율)
+function gainXp(amount) {
+    if (amount > 0) {
+        const eff = xpEfficiency();
+        STATE.xp += Math.max(1, Math.round(amount * eff));   // 효율 낮아도 최소 1은 줌
+        return eff;
+    }
+    STATE.xp += amount;   // 음수(나쁜 선택 벌점)는 그대로
+    return 1;
+}
+function levelNeed(lv) { return Math.round(120 + lv * lv * 28); }   // 제곱 곡선(더 상향): 경험치 천천히 참
 function levelCheck() {
     let need = levelNeed(STATE.level);
     while (STATE.xp >= need) { STATE.xp -= need; STATE.level += 1; flash(`⭐ 레벨업! Lv.${STATE.level}`); need = levelNeed(STATE.level); }
@@ -1317,11 +1372,11 @@ function renderConsole() {
     if (!consoleEl) return;
     const evo = evoStage(STATE.level), need = levelNeed(STATE.level);
     consoleEl.querySelector('.bl-pet-emoji-mini').innerHTML = mascotSVG(30);
-    consoleEl.querySelector('.bl-pet-name').textContent = evo.name;
+    consoleEl.querySelector('.bl-pet-name').textContent = petDisplayName();
     consoleEl.querySelector('.bl-lv').textContent = 'Lv.' + String(STATE.level).padStart(2, '0');
     consoleEl.querySelector('.bl-st-mood').textContent = statPct('😊', '', STATE.mood);
     consoleEl.querySelector('.bl-st-hunger').textContent = statPct('🍖', '', STATE.hunger);
-    consoleEl.querySelector('.bl-st-hp').textContent = statPct('❤️', '', STATE.hp);
+    consoleEl.querySelector('.bl-st-hp').textContent = statPct('⚡', '', STATE.hp);
     consoleEl.querySelector('.bl-xmini i').style.width = Math.min(100, (STATE.xp / need) * 100) + '%';
     consoleEl.querySelector('.bl-rep').textContent = (STATE.rep > 0 ? '+' : '') + STATE.rep;
     const mm = consoleEl.querySelector('.bl-money'); if (mm) mm.textContent = fmtMoney(STATE.money);
@@ -1359,12 +1414,12 @@ function buildFull() {
         <div class="bl-full-body">
           <div class="bl-tab-panel" data-panel="main">
           <div class="bl-pet-card">
-            <div class="bl-pet-top"><span class="bl-pet-name"></span><span class="bl-pet-lv">Lv.<b class="num bl-pet-lvnum"></b></span></div>
+            <div class="bl-pet-top"><span class="bl-pet-name"></span><button class="bl-rename-btn" title="이름 짓기 (작명소)">✏️</button><span class="bl-pet-stage"></span><span class="bl-pet-lv">Lv.<b class="num bl-pet-lvnum"></b></span></div>
             <div class="bl-pet"><span class="bl-pet-emoji"></span></div>
             <div class="bl-status">
-              <span class="bl-st">기분 <b class="bl-st-mood"></b></span>
-              <span class="bl-st">배고픔 <b class="bl-st-hunger"></b></span>
-              <span class="bl-st">체력 <b class="bl-st-hp"></b></span>
+              <span class="bl-st">😊 기분 <b class="bl-st-mood"></b></span>
+              <span class="bl-st">🍖 배고픔 <b class="bl-st-hunger"></b></span>
+              <span class="bl-st">⚡ 체력 <b class="bl-st-hp"></b></span>
             </div>
             <div class="bl-pet-xptext num"></div><div class="bl-pet-xpbar"><i></i></div>
             <div class="bl-pet-stats">⭐ <b class="num bl-pet-rep"></b> · 💰 <b class="num bl-pet-money"></b> · 🎒 <b class="num bl-pet-items"></b> · <span class="bl-pet-title"></span></div>
@@ -1473,6 +1528,7 @@ function buildFull() {
     fullEl.querySelector('.bl-work-go').addEventListener('click', onWork);
     fullEl.querySelector('.bl-donate').addEventListener('click', onDonate);
     { const fb = fullEl.querySelector('.bl-feed'); if (fb) fb.addEventListener('click', onFeed); }
+    { const rb = fullEl.querySelector('.bl-rename-btn'); if (rb) rb.addEventListener('click', onRename); }
     { const qn = fullEl.querySelector('.bl-quest-new'); if (qn) qn.addEventListener('click', onNewQuest); }
     { const ql = fullEl.querySelector('.bl-quest-list'); if (ql) ql.addEventListener('click', e => {
         const c = e.target.closest('.bl-quest-check'); if (c) { onCheckQuest(c.dataset.id); return; }
@@ -1533,7 +1589,7 @@ function afterBlock(e) {
     return innerWrap + rare;
 }
 function chipsHtml(e) {
-    return `${e.affDelta ? `<span class="bl-chip">❤️ ${e.affDelta > 0 ? '+' : ''}${e.affDelta}</span>` : ''}${e.rep ? `<span class="bl-chip">⭐ ${e.rep > 0 ? '+' : ''}${e.rep}</span>` : ''}<span class="bl-chip">EXP +${e.exp}</span>${e.drop ? `<span class="bl-chip">${e.dropBait ? '🎣 ' : ''}${escapeHtml(e.drop)}</span>` : ''}`;
+    return `${e.affDelta ? `<span class="bl-chip">❤️ ${e.affDelta > 0 ? '+' : ''}${e.affDelta}</span>` : ''}${e.rep ? `<span class="bl-chip">⭐ ${e.rep > 0 ? '+' : ''}${e.rep}</span>` : ''}<span class="bl-chip">EXP ${e.exp >= 0 ? '+' : ''}${e.exp}</span>${e.drop ? `<span class="bl-chip">${e.dropBait ? '🎣 ' : ''}${escapeHtml(e.drop)}</span>` : ''}`;
 }
 function dexCard(n) {
     const disp = n.nickname || n.name;
@@ -1597,7 +1653,8 @@ function renderFull() {
     if (!fullEl) return;
     const evo = evoStage(STATE.level), need = levelNeed(STATE.level);
     fullEl.querySelector('.bl-pet-emoji').innerHTML = mascotSVG(72);
-    fullEl.querySelector('.bl-pet-name').textContent = evo.name;
+    fullEl.querySelector('.bl-pet-name').textContent = petDisplayName();
+    { const sub = fullEl.querySelector('.bl-pet-stage'); if (sub) sub.textContent = (STATE.petName && STATE.petName.trim()) ? evo.name : ''; }
     fullEl.querySelector('.bl-pet-lvnum').textContent = String(STATE.level).padStart(2, '0');
     fullEl.querySelector('.bl-st-mood').textContent = clamp0100(STATE.mood) + '%';
     fullEl.querySelector('.bl-st-hunger').textContent = clamp0100(STATE.hunger) + '%';
@@ -1633,7 +1690,7 @@ function renderFull() {
     fullEl.querySelector('.bl-enc-list').innerHTML = STATE.encounters.length
         ? STATE.encounters.map(e => `
             <div class="bl-ticket bl-tk-${e.category || 'npc'}${e.open ? '' : ' collapsed'}" data-id="${e.id}">
-              <div class="bl-tk-head"><span class="bl-tk-time num">${e.time || ''}</span><span class="bl-tk-emoji">${e.emoji}</span><span class="bl-tk-title">${escapeHtml(tkLabel(e))}</span>${e.rarity && e.rarity !== 'common' ? `<span class="bl-tk-rar">${RARITY[e.rarity].dot}</span>` : ''}<span class="bl-tk-chev">▾</span></div>
+              <div class="bl-tk-head"><span class="bl-tk-time num">${e.time || ''}</span><span class="bl-tk-emoji">${e.emoji}</span><span class="bl-tk-title">${e.backfire ? '💥 ' : ''}${escapeHtml(tkLabel(e))}</span>${e.rarity && e.rarity !== 'common' ? `<span class="bl-tk-rar">${RARITY[e.rarity].dot}</span>` : ''}<span class="bl-tk-chev">▾</span></div>
               <div class="bl-tk-body">
                 <div class="bl-tk-fulltitle">${escapeHtml(e.title)}</div>
                 <div class="bl-tk-desc">${escapeHtml(e.desc)}</div>
@@ -1888,9 +1945,16 @@ function showChoicePopup(item, chain) {
 }
 async function resolveAndApply(orig, c, history) {
     showLoading(pick(LOAD_RESOLVE));
+    // 예상 못한 역효과: 회피·이미 나쁜 선택(시비)을 뺀 나머지에서 가끔(18%) 발동 — 멀쩡한 선택이 운 나쁘게 꼬임
+    const backfire = (c.kind !== 'flee' && c.kind !== 'attack') && Math.random() < 0.18;
     try {
-        const txt = await llmGenerate(buildResolvePrompt(orig, c.label, c.kind, history), 4096);
+        const txt = await llmGenerate(buildResolvePrompt(orig, c.label, c.kind, history, backfire), 4096);
         const outcome = normalizeOutcome(parseLLMJson(txt), c.kind);
+        if (backfire) {   // 역효과면 경험치·평판을 음수로 강제 (LLM이 안 따랐을 때 대비)
+            if (!(outcome.exp < 0)) outcome.exp = -(1 + Math.floor(Math.random() * 3));   // -1~-3
+            if (outcome.rep > 0) outcome.rep = 0;
+            outcome._backfire = true;
+        }
         closePopup(); applyOutcome(orig, c.label, outcome, c.kind);
     } catch (err) { closePopup(); if (!handleLlmError(err)) applyOutcome(orig, c.label, resolveByKind(orig, c.kind), c.kind); }
 }
@@ -1901,7 +1965,7 @@ function showResultPopup(entry) {
     const pop = document.createElement('div'); pop.id = 'beastlog-popup';
     pop.innerHTML = `
       <div class="bl-pop-card bl-cat-${entry.category}">
-        <div class="bl-pop-badge">🎭 결과</div>
+        <div class="bl-pop-badge">${entry.backfire ? '💥 예상 못한 전개' : '🎭 결과'}</div>
         <div class="bl-pop-title">${escapeHtml(entry.result)}</div>
         <div class="bl-pop-chips">${chipsHtml(entry)}</div>
         ${afterBlock(entry)}
@@ -1952,6 +2016,39 @@ function showConfirm(title, msg, onYes) {
     mountPopup(pop);
     pop.querySelector('.bl-rename-cancel').addEventListener('click', closePopup);
     pop.querySelector('.bl-confirm-yes').addEventListener('click', () => { closePopup(); try { onYes(); } catch (e) { /* noop */ } });
+}
+function onRename() {
+    const money = STATE.money || 0;
+    const cur = (STATE.petName && STATE.petName.trim()) ? STATE.petName.trim() : '';
+    const free = !cur;   // 처음 짓기는 무료, 이후 변경은 유료
+    if (!free && money < RENAME_PRICE) {
+        showAlarm('작명소', `이름을 바꾸려면 ${fmtMoney(RENAME_PRICE)}이 필요해요.\n(지금 ${fmtMoney(RENAME_PRICE - money)} 모자라요)`);
+        return;
+    }
+    closePopup();
+    const pop = document.createElement('div'); pop.id = 'beastlog-popup';
+    const feeLine = free ? '첫 작명은 무료예요!' : `이름 변경: ${fmtMoney(RENAME_PRICE)}`;
+    pop.innerHTML = `<div class="bl-pop-card bl-alarm">
+        <div class="bl-alarm-title">🏷️ 작명소</div>
+        <div class="bl-alarm-msg">${feeLine}</div>
+        <input class="bl-rename-input" type="text" maxlength="16" placeholder="펫 이름 (최대 16자)" value="${escapeHtml(cur)}" />
+        <div class="bl-rename-btns"><button class="bl-rename-cancel">취소</button><button class="bl-rename-ok">${free ? '짓기' : '바꾸기'}</button></div>
+      </div>`;
+    mountPopup(pop);
+    const input = pop.querySelector('.bl-rename-input');
+    setTimeout(() => { try { input.focus(); } catch (e) { /* noop */ } }, 50);
+    const submit = () => {
+        const name = (input.value || '').trim().slice(0, 16);
+        if (!name) { closePopup(); return; }
+        if (name === cur) { closePopup(); return; }   // 변경 없음 → 무료
+        if (!free) STATE.money = (STATE.money || 0) - RENAME_PRICE;
+        STATE.petName = name;
+        saveState(STATE); renderAll(); closePopup();
+        flash(`🏷️ 이름이 '${name}'(으)로 정해졌어요`);
+    };
+    pop.querySelector('.bl-rename-cancel').addEventListener('click', closePopup);
+    pop.querySelector('.bl-rename-ok').addEventListener('click', submit);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
 }
 function showLoading(msg) {
     closePopup();
@@ -2077,12 +2174,14 @@ function registerEvents() {
     if (types.CHAT_CHANGED) ctx.eventSource.on(types.CHAT_CHANGED, () => { STATE = loadState(); lastTouch = Date.now(); isSleeping = false; hungerWarnLevel = -1; ensureMounted(); renderAll(); refreshMemory(); });
     // 자동 출현: 상대 메시지가 올 때마다, 텀(쿨다운) 간격을 지키며 자동으로 조우 1건 생성
     const onMsg = () => {
+        noteTouch();   // 채팅이 오가면 졸음에서 깸 + 잠 타이머 리셋
         if (!EXT.autoDetect || _blBusy) return;
         if (!canInject()) return;
         markInject();
         setTimeout(() => { if (EXT.autoDetect && !_blBusy) onAppear(); }, 700);
     };
     if (types.MESSAGE_RECEIVED) ctx.eventSource.on(types.MESSAGE_RECEIVED, onMsg);
+    if (types.MESSAGE_SENT) ctx.eventSource.on(types.MESSAGE_SENT, noteTouch);   // 내가 보낼 때도 깸
 }
 
 function init() {

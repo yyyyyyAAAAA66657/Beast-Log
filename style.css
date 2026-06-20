@@ -85,8 +85,8 @@
 /* 자는 표정(②): 살짝 두둥실(-3px) + 몸 호흡(부풀기)을 하나로 합침 */
 @keyframes bl-sleep-breathe { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-3px) scale(1.06); } }
 .bl-sprite.bl-sleeping { animation: bl-sleep-breathe 2.6s ease-in-out infinite; transform-origin: center bottom; overflow: visible; }
-/* 잠일 때는 컨테이너의 큰 두둥실(-7px)을 멈춤 — SVG 자체 모션만 보이게 (구형 브라우저는 이 줄만 무시) */
-.bl-pet-emoji:where(:has(.bl-sleeping)), .bl-pet-emoji-mini:where(:has(.bl-sleeping)), #beastlog-bubble:where(:has(.bl-sleeping)) { animation: none; }
+/* 잠일 때는 컨테이너의 큰 두둥실(-7px)을 멈춤 — JS가 .bl-host-sleeping을 붙임 (SVG 자체 모션만 보이게) */
+.bl-host-sleeping { animation: none !important; }
 /* zzz 두 개가 위아래로 둥실, 시간차 두고 */
 @keyframes bl-zbob { 0%, 100% { transform: translateY(0); opacity: .8; } 50% { transform: translateY(-2.5px); opacity: 1; } }
 .bl-sprite .bl-z1 { animation: bl-zbob 1.8s ease-in-out infinite; }
@@ -259,8 +259,11 @@
 
 /* 펫 카드 (마스코트 둥둥) */
 .bl-pet-card { background: var(--bl-card2); border: 2px solid var(--bl-line); border-radius: 12px; padding: 12px; text-align: center; }
-.bl-pet-top { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.bl-pet-top { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
 .bl-pet-name { font-family: var(--bl-chrome); font-size: 11px; color: var(--bl-ink); }
+.bl-rename-btn { font-size: 11px; padding: 1px 5px; border: 1.5px solid var(--bl-line); border-radius: 6px; background: var(--bl-card2); cursor: pointer; line-height: 1.4; opacity: .75; }
+.bl-rename-btn:hover { opacity: 1; }
+.bl-pet-stage { font-family: var(--bl-chrome); font-size: 9px; color: var(--bl-ink-soft); }
 .bl-pet-lv { font-family: var(--bl-chrome); font-size: 11px; color: var(--bl-point-d); }
 .bl-pet { margin: 6px 0; }
 .bl-pet-emoji { display: inline-block; line-height: 0; animation: bl-bob 2.2s ease-in-out infinite; }
