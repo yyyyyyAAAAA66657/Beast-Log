@@ -1408,7 +1408,7 @@ function buildConsole() {
       </div>
       <div class="bl-mini-slots">
         <div class="bl-mini-bag collapsed">
-          <div class="bl-mb-h">🎒 소지품 <span class="bl-mb-cnt num"></span><button class="bl-bag-inject" title="떡밥 주입">📤</button><span class="bl-mb-chev">▾</span></div>
+          <div class="bl-mb-h">🎒 소지품 <span class="bl-mb-cnt num"></span><button class="bl-bag-inject" title="🎣 떡밥을 만지작거려 조우를 유도해요">📤</button><span class="bl-mb-chev">▾</span></div>
           <div class="bl-bag-list"></div>
         </div>
         <div class="bl-slot"><span class="bl-slot-h">📢 현재 상황</span><span class="bl-slot-v bl-sit-v"></span></div>
@@ -1501,6 +1501,8 @@ function renderConsole() {
 
 // ── 풀버전 (리치) ──
 let fullEl = null;
+const PREVIEW_N = 3;          // 메인 화면에서 섹션별 미리보기 개수
+let listView = 'main';        // 'main' | 'enc' | 'dex' | 'bag' — 어느 목록을 전체보기 중인지
 function buildFull() {
     if (fullEl) return;
     fullEl = document.createElement('div');
@@ -1543,17 +1545,17 @@ function buildFull() {
             <div class="bl-slot"><span class="bl-slot-h">👤 현재 조우</span><span class="bl-slot-v bl-npc-v"></span></div>
           </div>
           <div class="bl-full-rolls"><button class="bl-roll2">🐯 출현</button><button class="bl-rand2">🌦️ 상황</button></div>
-          <div class="bl-acc">
+          <div class="bl-acc bl-acc-enc">
             <div class="bl-acc-head"><h3>📜 모험일지</h3><span class="bl-rule"></span><span class="bl-enc-cnt num"></span><button class="bl-clear-btn bl-enc-clear" title="전체 비우기">🧹</button><span class="bl-chev">▾</span></div>
             <div class="bl-acc-body"><div class="bl-enc-list"></div></div>
           </div>
-          <div class="bl-acc">
+          <div class="bl-acc bl-acc-dex">
             <div class="bl-acc-head"><h3>📖 도감</h3><span class="bl-rule"></span><span class="bl-dex-cnt num"></span><button class="bl-clear-btn bl-dex-clear" title="도감 전체 삭제">🧹</button><span class="bl-chev">▾</span></div>
             <div class="bl-acc-body"><div class="bl-dex-list"></div></div>
           </div>
-          <div class="bl-acc">
+          <div class="bl-acc bl-acc-bag">
             <div class="bl-acc-head"><h3>🎒 가방</h3><span class="bl-rule"></span><span class="bl-junk-cnt num"></span><button class="bl-clear-btn bl-bag-clear" title="전체 비우기">🧹</button><span class="bl-chev">▾</span></div>
-            <div class="bl-acc-body"><div class="bl-junk-list"></div></div>
+            <div class="bl-acc-body"><div class="bl-bag-tip">🎣 <b>떡밥</b> 표시가 붙은 물건은 만지작거리면 조우를 부를 수 있어요(희귀할수록 떡밥일 확률↑). 💝는 캐릭터·유저와 인연 깊은 물건.</div><div class="bl-junk-list"></div></div>
           </div>
           <button class="bl-main-reset">🔄 처음으로 (완전 초기화)</button>
           </div>
@@ -1621,6 +1623,7 @@ function buildFull() {
     fullEl.querySelector('.bl-close').addEventListener('click', hideHud);
     fullEl.querySelectorAll('.bl-tab').forEach(t => t.addEventListener('click', () => {
         const tab = t.dataset.tab;
+        if (listView !== 'main') { listView = 'main'; fullEl.classList.remove('bl-soloview'); renderFull(); }   // 탭 이동 시 전체보기 해제
         fullEl.querySelectorAll('.bl-tab').forEach(x => x.classList.toggle('on', x === t));
         fullEl.querySelectorAll('.bl-tab-panel').forEach(p => { p.hidden = (p.dataset.panel !== tab); });
         fullEl.querySelector('.bl-full-body').scrollTop = 0;
@@ -1647,7 +1650,13 @@ function buildFull() {
         const d = e.target.closest('.bl-quest-del'); if (d) deleteQuest(d.dataset.id);
     }); }
     fullEl.querySelector('.bl-jobs-clear').addEventListener('click', e => { e.stopPropagation(); clearJobs(); });
-    fullEl.querySelector('.bl-jobs-list').addEventListener('click', e => { const b = e.target.closest('.bl-job-del'); if (b) deleteJob(b.dataset.id); });
+    fullEl.querySelector('.bl-jobs-list').addEventListener('click', e => {
+        const more = e.target.closest('.bl-more-btn'); if (more) { setListView(more.dataset.view); return; }
+        const b = e.target.closest('.bl-job-del'); if (b) deleteJob(b.dataset.id);
+    });
+    { const sl = fullEl.querySelector('.bl-secrets-list'); if (sl) sl.addEventListener('click', e => {
+        const more = e.target.closest('.bl-more-btn'); if (more) setListView(more.dataset.view);
+    }); }
     fullEl.querySelector('.bl-main-reset').addEventListener('click', resetAll);
     fullEl.querySelector('.bl-data-export').addEventListener('click', exportData);
     fullEl.querySelectorAll('.bl-theme-btn').forEach(b => b.addEventListener('click', () => setTheme(b.dataset.theme)));
@@ -1655,6 +1664,8 @@ function buildFull() {
     fullEl.querySelector('.bl-data-reset').addEventListener('click', resetAll);
     fullEl.querySelector('.bl-shop-list').addEventListener('click', e => { const b = e.target.closest('.bl-shop-buy'); if (b) buyMascot(b.dataset.m); });
     fullEl.querySelector('.bl-enc-list').addEventListener('click', e => {
+        const more = e.target.closest('.bl-more-btn');
+        if (more) { setListView(more.dataset.view); return; }
         const rev = e.target.closest('.bl-reveal');
         if (rev) { const en = STATE.encounters.find(x => x.id === rev.dataset.id); if (en) { en.revealed = true; saveState(STATE); renderFull(); } return; }
         const pinb = e.target.closest('.bl-pin');
@@ -1669,6 +1680,8 @@ function buildFull() {
         }
     });
     fullEl.querySelector('.bl-dex-list').addEventListener('click', e => {
+        const more = e.target.closest('.bl-more-btn');
+        if (more) { setListView(more.dataset.view); return; }
         const pinb = e.target.closest('.bl-pin');
         if (pinb) { if (!pinb.disabled) pinMemory(pinb.dataset.pin); return; }
         const del = e.target.closest('.bl-dex-del');
@@ -1683,12 +1696,35 @@ function buildFull() {
         }
     });
     fullEl.querySelector('.bl-junk-list').addEventListener('click', e => {
+        const more = e.target.closest('.bl-more-btn');
+        if (more) { setListView(more.dataset.view); return; }
         const pinb = e.target.closest('.bl-pin');
         if (pinb) { if (!pinb.disabled) pinMemory(pinb.dataset.pin); return; }
         const del = e.target.closest('.bl-item-del'); if (!del) return;
         deleteItem(del.dataset.id);
     });
     fullEl.addEventListener('click', e => { if (e.target === fullEl) showMini(); });
+}
+// 목록 전체보기 모드 전환: main이면 다 보이고, 특정 섹션이면 그 섹션만
+function setListView(v) {
+    const valid = ['enc', 'dex', 'bag', 'job', 'sec'];
+    listView = valid.includes(v) ? v : 'main';
+    if (fullEl) {
+        // 메인 탭(일지·도감·가방)만 solo 레이아웃 적용. 알바·비밀은 자기 탭 안이라 단순 펼침.
+        const isMainSection = (listView === 'enc' || listView === 'dex' || listView === 'bag');
+        fullEl.classList.toggle('bl-soloview', isMainSection);
+        fullEl.setAttribute('data-solo', isMainSection ? listView : 'main');
+        if (listView !== 'main') {
+            const map = { enc: '.bl-enc-list', dex: '.bl-dex-list', bag: '.bl-junk-list', job: '.bl-jobs-list', sec: '.bl-secrets-list' };
+            const sel = map[listView];
+            const el = sel && fullEl.querySelector(sel);
+            const acc = el && el.closest('.bl-acc');
+            if (acc) acc.classList.remove('collapsed');
+        }
+        const scroller = fullEl.querySelector('.bl-full-body') || fullEl;
+        if (scroller) scroller.scrollTop = 0;
+    }
+    renderFull();
 }
 function afterBlock(e) {
     const inner = e.inner || {};
@@ -1759,7 +1795,10 @@ function renderQuests() {
     const secs = STATE.secrets || [];
     const sc = fullEl.querySelector('.bl-secrets-cnt'); if (sc) sc.textContent = secs.length + '개';
     const sl = fullEl.querySelector('.bl-secrets-list');
-    if (sl) sl.innerHTML = secs.length ? secs.map(s => `<div class="bl-secret-row">🔒 <b>${escapeHtml(s.text)}</b>${s.goal ? `<span class="bl-secret-meta"> — ${escapeHtml(s.goal)}</span>` : ''}</div>`).join('') : '<div class="bl-empty">아직 알아낸 비밀이 없어요.</div>';
+    if (sl) {
+        const secShow = (listView === 'sec') ? secs : secs.slice(0, PREVIEW_N);
+        sl.innerHTML = secs.length ? secShow.map(s => `<div class="bl-secret-row">🔒 <b>${escapeHtml(s.text)}</b>${s.goal ? `<span class="bl-secret-meta"> — ${escapeHtml(s.goal)}</span>` : ''}</div>`).join('') + moreBtn('sec', secs.length) : '<div class="bl-empty">아직 알아낸 비밀이 없어요.</div>';
+    }
 }
 function renderFull() {
     if (!fullEl) return;
@@ -1782,9 +1821,13 @@ function renderFull() {
     const wcd = fullEl.querySelector('.bl-work-cd'); if (wcd) { const r = jobRemaining(); wcd.textContent = r > 0 ? `😮‍💨 ${r}턴 더 쉬어야` : '✅ 알바 가능'; }
     const jc = fullEl.querySelector('.bl-job-cnt'); if (jc) jc.textContent = (STATE.jobs || []).length + '건';
     const jl = fullEl.querySelector('.bl-jobs-list');
-    if (jl) jl.innerHTML = (STATE.jobs && STATE.jobs.length)
-        ? STATE.jobs.map(j => `<div class="bl-job-row" data-id="${j.id}"><div class="bl-job-rmain"><span class="bl-job-rttl">${escapeHtml(j.job)}</span><span class="bl-job-rpay num">+${fmtMoney(j.pay)}</span></div><div class="bl-job-rrep">${escapeHtml(j.report)}${j.incident ? ' ⚠️ ' + escapeHtml(j.incident) : ''}</div><button class="bl-job-del" data-id="${j.id}" title="삭제">🗑️</button></div>`).join('')
-        : '<div class="bl-empty">아직 알바 안 함</div>';
+    if (jl) {
+        const jobAll = STATE.jobs || [];
+        const jobShow = (listView === 'job') ? jobAll : jobAll.slice(0, PREVIEW_N);
+        jl.innerHTML = jobAll.length
+            ? jobShow.map(j => `<div class="bl-job-row" data-id="${j.id}"><div class="bl-job-rmain"><span class="bl-job-rttl">${escapeHtml(j.job)}</span><span class="bl-job-rpay num">+${fmtMoney(j.pay)}</span></div><div class="bl-job-rrep">${escapeHtml(j.report)}${j.incident ? ' ⚠️ ' + escapeHtml(j.incident) : ''}</div><button class="bl-job-del" data-id="${j.id}" title="삭제">🗑️</button></div>`).join('') + moreBtn('job', jobAll.length)
+            : '<div class="bl-empty">아직 알바 안 함</div>';
+    }
     // 상점 탭
     const sm = fullEl.querySelector('.bl-shop-money'); if (sm) sm.textContent = fmtMoney(STATE.money);
     const sl = fullEl.querySelector('.bl-shop-list'); if (sl) sl.innerHTML = shopListHtml();
@@ -1798,9 +1841,12 @@ function renderFull() {
     { const ct = EXT.theme || 'pudding'; fullEl.querySelectorAll('.bl-theme-btn').forEach(b => b.classList.toggle('on', b.dataset.theme === ct)); }
     renderQuests();
 
-    fullEl.querySelector('.bl-enc-cnt').textContent = STATE.encounters.length + '건';
-    fullEl.querySelector('.bl-enc-list').innerHTML = STATE.encounters.length
-        ? STATE.encounters.map(e => `
+    // ── 모험일지 ──
+    const encAll = STATE.encounters;
+    const encShow = (listView === 'enc') ? encAll : encAll.slice(0, PREVIEW_N);
+    fullEl.querySelector('.bl-enc-cnt').textContent = encAll.length + '건';
+    fullEl.querySelector('.bl-enc-list').innerHTML = encAll.length
+        ? encShow.map(e => `
             <div class="bl-ticket bl-tk-${e.category || 'npc'}${e.open ? '' : ' collapsed'}" data-id="${e.id}">
               <div class="bl-tk-head"><span class="bl-tk-time num">${e.time || ''}</span><span class="bl-tk-emoji">${e.emoji}</span><span class="bl-tk-title">${e.backfire ? '💥 ' : ''}${escapeHtml(tkLabel(e))}</span>${e.rarity && e.rarity !== 'common' ? `<span class="bl-tk-rar">${RARITY[e.rarity].dot}</span>` : ''}<span class="bl-tk-chev">▾</span></div>
               <div class="bl-tk-body">
@@ -1809,28 +1855,41 @@ function renderFull() {
                 <div class="bl-tk-foot">${chipsHtml(e)}${pinBtn('enc:' + e.id)}<button class="bl-tk-del" data-id="${e.id}" title="삭제">🗑️</button></div>
                 ${e.inner ? (e.revealed ? afterBlock(e) : `<button class="bl-reveal" data-id="${e.id}">🗞️ 뒷소문 보기</button>`) : ''}
               </div>
-            </div>`).join('')
+            </div>`).join('') + moreBtn('enc', encAll.length)
         : '<div class="bl-empty">아직 아무 일도 없었다. 조용한 하루다.</div>';
 
+    // ── 도감 ──
     const npcArr = Object.values(STATE.npcs);
+    const dexShow = (listView === 'dex') ? npcArr : npcArr.slice(0, PREVIEW_N);
     fullEl.querySelector('.bl-dex-cnt').textContent = '발견 ' + npcArr.length;
     fullEl.querySelector('.bl-dex-list').innerHTML = npcArr.length
-        ? DEX_GROUPS.map(g => {
-            const arr = npcArr.filter(n => (n.dexType || 'creature') === g.key);
-            if (!arr.length) return '';
-            return `<div class="bl-dex-grouphead">${g.label} <span class="num">${arr.length}</span></div>` + arr.map(dexCard).join('');
-        }).join('') || '<div class="bl-empty">아직 아무도 못 만났다.</div>'
+        ? ((listView === 'dex')
+            ? (DEX_GROUPS.map(g => {
+                const arr = npcArr.filter(n => (n.dexType || 'creature') === g.key);
+                if (!arr.length) return '';
+                return `<div class="bl-dex-grouphead">${g.label} <span class="num">${arr.length}</span></div>` + arr.map(dexCard).join('');
+            }).join('') || '<div class="bl-empty">아직 아무도 못 만났다.</div>')
+            : dexShow.map(dexCard).join('') + moreBtn('dex', npcArr.length))
         : '<div class="bl-empty">아직 아무도 못 만났다.</div>';
 
-    fullEl.querySelector('.bl-junk-cnt').textContent = STATE.items.length + '개';
-    fullEl.querySelector('.bl-junk-list').innerHTML = STATE.items.length
-        ? STATE.items.map(it => `<div class="bl-item-row"><div class="bl-item-main">${itemChip(it)}${it.lore ? `<div class="bl-item-lore">${escapeHtml(it.lore)}</div>` : ''}</div>${pinBtn('item:' + it.id)}<button class="bl-item-del" data-id="${it.id}" title="버리기">🗑️</button></div>`).join('')
+    // ── 가방 ──
+    const itemAll = STATE.items;
+    const itemShow = (listView === 'bag') ? itemAll : itemAll.slice(0, PREVIEW_N);
+    fullEl.querySelector('.bl-junk-cnt').textContent = itemAll.length + '개';
+    fullEl.querySelector('.bl-junk-list').innerHTML = itemAll.length
+        ? itemShow.map(it => `<div class="bl-item-row"><div class="bl-item-main">${itemChip(it)}${it.lore ? `<div class="bl-item-lore">${escapeHtml(it.lore)}</div>` : ''}</div>${pinBtn('item:' + it.id)}<button class="bl-item-del" data-id="${it.id}" title="버리기">🗑️</button></div>`).join('') + moreBtn('bag', itemAll.length)
         : '<div class="bl-empty">텅 비었다.</div>';
+}
+// 전체보기/접기 버튼 — 미리보기 모드에서 항목이 더 있으면 "전체보기", 전체보기 모드면 "접기"
+function moreBtn(key, total) {
+    if (listView === key) return `<button class="bl-more-btn" data-view="main">▲ 접기</button>`;
+    if (total > PREVIEW_N) return `<button class="bl-more-btn" data-view="${key}">전체보기 (${total}) ▾</button>`;
+    return '';
 }
 
 // ── 상태 전환 ──
-function showMini() { if (bubbleEl) bubbleEl.style.display = 'none'; if (consoleEl) consoleEl.style.display = ''; if (fullEl) fullEl.style.display = 'none'; ensureMounted(); applyConsolePos(); renderConsole(); }
-function showFull() { buildFull(); if (bubbleEl) bubbleEl.style.display = 'none'; if (consoleEl) consoleEl.style.display = 'none'; fullEl.style.display = 'flex'; renderFull(); }
+function showMini() { listView = 'main'; if (bubbleEl) bubbleEl.style.display = 'none'; if (consoleEl) consoleEl.style.display = ''; if (fullEl) fullEl.style.display = 'none'; ensureMounted(); applyConsolePos(); renderConsole(); }
+function showFull() { listView = 'main'; buildFull(); if (bubbleEl) bubbleEl.style.display = 'none'; if (consoleEl) consoleEl.style.display = 'none'; fullEl.style.display = 'flex'; if (fullEl.classList) fullEl.classList.remove('bl-soloview'); renderFull(); }
 function hideHud() { if (consoleEl) consoleEl.style.display = 'none'; if (fullEl) fullEl.style.display = 'none'; }
 function renderAll() { renderConsole(); if (fullEl) renderFull(); if (bubbleEl) bubbleEl.innerHTML = mascotSVG(34); }
 

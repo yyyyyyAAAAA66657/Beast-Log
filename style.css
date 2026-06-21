@@ -251,6 +251,18 @@
 .bl-theme-row { margin-bottom: 11px; }
 .bl-philo { font-size: 10.5px; line-height: 1.55; color: var(--bl-ink-soft); background: var(--bl-card2); border: 1.5px dashed var(--bl-edge); border-radius: 9px; padding: 9px 11px; margin-bottom: 11px; }
 .bl-cd-note { font-size: 10px; color: var(--bl-ink-soft); background: var(--bl-card); border: 1.5px solid var(--bl-line); border-radius: 9px; padding: 9px 11px; margin-bottom: 11px; }
+.bl-bag-tip { font-size: 9.5px; color: var(--bl-ink-soft); line-height: 1.5; padding: 8px 10px; margin-bottom: 8px; background: var(--bl-card); border-radius: 8px; }
+/* 전체보기(solo) 모드 — 선택한 섹션만 노출 */
+.bl-soloview[data-solo="enc"] .bl-acc-dex,
+.bl-soloview[data-solo="enc"] .bl-acc-bag,
+.bl-soloview[data-solo="dex"] .bl-acc-enc,
+.bl-soloview[data-solo="dex"] .bl-acc-bag,
+.bl-soloview[data-solo="bag"] .bl-acc-enc,
+.bl-soloview[data-solo="bag"] .bl-acc-dex { display: none; }
+.bl-soloview .bl-main-reset { display: none; }
+/* 전체보기/접기 버튼 */
+.bl-more-btn { display: block; width: 100%; margin: 8px 0 2px; padding: 8px; font-size: 11px; color: var(--bl-point-d); background: var(--bl-card); border: 1.5px solid var(--bl-line); border-radius: 9px; cursor: pointer; font-family: var(--bl-chrome); }
+.bl-more-btn:hover { background: var(--bl-card2); }
 .bl-cd-note b { color: var(--bl-point-d); }
 .bl-philo b { color: var(--bl-point-d); }.bl-theme-lbl { display: block; font-family: var(--bl-chrome); font-size: 10px; color: var(--bl-point-d); margin-bottom: 7px; }
 .bl-theme-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
