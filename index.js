@@ -734,8 +734,18 @@ function migrateState(s) {
 }
 function loadState() {
     const ctx = getCtx();
-    if (!ctx || !ctx.chatMetadata) return defaultState();
-    const e = ctx.chatMetadata[STATE_KEY];
+    if (!ctx) return defaultState();
+    // 1순위: 캐릭터 카드에 저장된 데이터 (같은 캐릭터면 채팅 바뀌어도 유지)
+    let e = null;
+    try {
+        const cid = ctx.characterId;
+        if (cid != null && ctx.characters && ctx.characters[cid]) {
+            const ext = ctx.characters[cid].data && ctx.characters[cid].data.extensions;
+            if (ext && ext[STATE_KEY]) e = ext[STATE_KEY];
+        }
+    } catch (err) { /* noop */ }
+    // 2순위(폴백): 그룹챗·캐릭터 미선택 시 채팅 메타데이터
+    if (!e && ctx.chatMetadata && ctx.chatMetadata[STATE_KEY]) e = ctx.chatMetadata[STATE_KEY];
     if (e && typeof e === 'object') {
         const isNew = (e.statScale === 100);   // 원본에 신버전 마커가 있는지 (merge 전 판정)
         const m = Object.assign(defaultState(), e);
@@ -747,16 +757,26 @@ function loadState() {
         }
         return m;
     }
-    const fresh = defaultState();
-    ctx.chatMetadata[STATE_KEY] = fresh;
-    return fresh;
+    return defaultState();
 }
 function saveState(s) {
     const ctx = getCtx();
-    if (!ctx || !ctx.chatMetadata) return;
-    ctx.chatMetadata[STATE_KEY] = s;
-    if (ctx.saveMetadataDebounced) ctx.saveMetadataDebounced();
-    else if (ctx.saveMetadata) ctx.saveMetadata();
+    if (!ctx) return;
+    let savedToChar = false;
+    // 1순위: 캐릭터 카드에 저장 (같은 캐릭터면 모든 채팅에서 유지)
+    try {
+        const cid = ctx.characterId;
+        if (cid != null && ctx.characters && ctx.characters[cid] && typeof ctx.writeExtensionField === 'function') {
+            ctx.writeExtensionField(cid, STATE_KEY, s);   // 캐릭터 카드 extensions에 기록
+            savedToChar = true;
+        }
+    } catch (err) { /* noop */ }
+    // 폴백: 캐릭터별 저장이 안 되면(그룹챗 등) 채팅 메타데이터에
+    if (!savedToChar && ctx.chatMetadata) {
+        ctx.chatMetadata[STATE_KEY] = s;
+        if (ctx.saveMetadataDebounced) ctx.saveMetadataDebounced();
+        else if (ctx.saveMetadata) ctx.saveMetadata();
+    }
 }
 let STATE = defaultState();
 
@@ -808,9 +828,15 @@ function resetAll() {
 
 // ── 텀 ──
 function getChatLen() { const c = getCtx(); return (c && Array.isArray(c.chat)) ? c.chat.length : 0; }
-function injectRemaining() { const cd = (STATE.injectCD == null ? 3 : STATE.injectCD); return Math.max(0, cd - (getChatLen() - STATE.lastInjectTurn)); }
+function injectRemaining() {
+    const cd = (STATE.injectCD == null ? 3 : STATE.injectCD);
+    const len = getChatLen();
+    let last = (STATE.lastInjectTurn == null ? -99 : STATE.lastInjectTurn);
+    if (last > len) { last = len; STATE.lastInjectTurn = len; }   // 새 챗·되돌리기로 길이 줄면 리셋(지금부터 다시 셈)
+    return Math.max(0, Math.min(cd, cd - (len - last)));           // 최대 cd턴 상한 (폭발 방지)
+}
 function canInject() { return injectRemaining() <= 0; }
-function markInject() { STATE.lastInjectTurn = getChatLen(); STATE.injectCD = 2 + Math.floor(Math.random() * 3); saveState(STATE); renderAll(); }
+function markInject() { STATE.lastInjectTurn = getChatLen(); STATE.injectCD = 3 + Math.floor(Math.random() * 2); saveState(STATE); renderAll(); }
 function getProfiles() {
     const ctx = getCtx();
     const cm = (ctx && ctx.extensionSettings && ctx.extensionSettings.connectionManager) || null;
@@ -1052,8 +1078,10 @@ function normalizeEvent(o, cat) {
 }
 function normalizeOutcome(o, kind) {
     o = o || {};
-    let exp = Number.isFinite(o.exp) ? o.exp : (kind === 'attack' ? -3 : 1);
-    if (kind === 'attack') exp = -Math.abs(exp || 3);   // 나쁜 선택(시비)은 항상 경험치 손해
+    // 경험치는 LLM 즉흥값이 아니라 선택(kind)별 고정값으로 — 일관된 밸런스
+    const EXP_BY_KIND = { cooperate: 8, help: 6, activity: 4, loot: 4, interact: 2, flee: 2, attack: -3 };
+    let exp = (kind in EXP_BY_KIND) ? EXP_BY_KIND[kind] : 4;
+    if (kind === 'attack') exp = -3;   // 나쁜 선택(시비)은 항상 경험치 손해
     // 드랍 결정: LLM이 준 게 있으면 그걸, 없으면 — loot(주움)은 항상, 그 외엔 확률로 보완
     let drop = (o.drop && o.drop.name)
         ? { name: String(o.drop.name).slice(0, 40), emoji: String(o.drop.emoji || '📦'), price: o.drop.price || 0, bond: Math.max(0, Math.min(3, parseInt(o.drop.bond, 10) || 0)), lore: (o.drop.lore && o.drop.lore !== 'null') ? String(o.drop.lore).slice(0, 120) : '' }
@@ -1566,7 +1594,7 @@ function buildFull() {
               <label><span>🌱 기억을 RP에 흘리기 <small>(선택) — 켜면 쌓인 NPC·일지를 캐릭터가 대화 중 가끔 자연스럽게 떠올려요. 강제 등장 X, 그냥 슬쩍</small></span><input type="checkbox" class="bl-t-inject"></label>
               <label><span>🔗 이벤트 체인 <small>(켜면 조우·상황이 랜덤 1~3단계로 이어짐 / 끄면 1번에 끝)</small></span><input type="checkbox" class="bl-t-chain"></label>
               <label><span>🎨 마스코트 흑백(도트라인)</span><input type="checkbox" class="bl-t-mono"></label>
-              <label><span>📥 자동 출현 <small>(켜면 RP 상대 답장마다 랜덤 2~4회 간격으로 조우가 저절로 뜸 / 끄면 출현 버튼으로 직접)</small></span><input type="checkbox" class="bl-t-auto"></label>
+              <label><span>📥 자동 출현 <small>(켜면 RP 상대 답장마다 랜덤 3~4회 간격으로 조우·상황이 저절로 뜸 / 끄면 버튼으로 직접)</small></span><input type="checkbox" class="bl-t-auto"></label>
               <label><span>🍖 배고픔 알림 <small>(켜면 배고프거나 삐졌을 때 살짝 토스트로 알려줘요 / 끄면 조용히)</small></span><input type="checkbox" class="bl-t-hwarn"></label>
             </div>
             <div class="bl-theme-row">
@@ -1575,7 +1603,7 @@ function buildFull() {
                 ${BL_THEMES.map(t => `<button class="bl-theme-btn" data-theme="${t.k}">${t.label}</button>`).join('')}
               </div>
             </div>
-            <div class="bl-cd-note">⏱️ 출현·알바 간격은 매번 <b>랜덤 2~4회</b>로 자동 조절돼요.</div>
+            <div class="bl-cd-note">⏱️ 자동 출현은 <b>랜덤 3~4회</b> 간격으로 조절돼요.</div>
             <div class="bl-data-sec">
               <div class="bl-data-ttl">💾 데이터</div>
               <div class="bl-data-btns">
@@ -2255,14 +2283,17 @@ function registerEvents() {
     const ctx = getCtx();
     if (!ctx || !ctx.eventSource) return;
     const types = ctx.eventTypes || ctx.event_types || {};
-    if (types.CHAT_CHANGED) ctx.eventSource.on(types.CHAT_CHANGED, () => { STATE = loadState(); lastTouch = Date.now(); isSleeping = false; hungerWarnLevel = -1; ensureMounted(); renderAll(); refreshMemory(); });
+    if (types.CHAT_CHANGED) ctx.eventSource.on(types.CHAT_CHANGED, () => { STATE = loadState(); saveState(STATE); lastTouch = Date.now(); isSleeping = false; hungerWarnLevel = -1; ensureMounted(); renderAll(); refreshMemory(); });
     // 자동 출현: 상대 메시지가 올 때마다, 텀(쿨다운) 간격을 지키며 자동으로 조우 1건 생성
     const onMsg = () => {
         noteTouch();   // 채팅이 오가면 졸음에서 깸 + 잠 타이머 리셋
         if (!EXT.autoDetect || _blBusy) return;
+        if (getChatLen() < 2) return;   // 새 챗 첫 인사말 단계에선 자동출현 안 함
         if (!canInject()) return;
         markInject();
-        setTimeout(() => { if (EXT.autoDetect && !_blBusy) onAppear(); }, 700);
+        // 조우/상황 랜덤 (반반)
+        const fn = Math.random() < 0.5 ? onAppear : onSituation;
+        setTimeout(() => { if (EXT.autoDetect && !_blBusy) fn(); }, 700);
     };
     if (types.MESSAGE_RECEIVED) ctx.eventSource.on(types.MESSAGE_RECEIVED, onMsg);
     if (types.MESSAGE_SENT) ctx.eventSource.on(types.MESSAGE_SENT, noteTouch);   // 내가 보낼 때도 깸
@@ -2270,7 +2301,7 @@ function registerEvents() {
 
 function init() {
     try {
-        EXT = loadExt(); STATE = loadState();
+        EXT = loadExt(); STATE = loadState(); saveState(STATE);
         applyTheme();
         buildConsole(); renderConsole(); applyConsolePos();
         buildSettingsWithRetry(10); buildWandMenuWithRetry(10);
