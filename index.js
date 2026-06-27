@@ -2568,6 +2568,16 @@ if (typeof window !== 'undefined') {
         remount: () => { try { ensureMounted(); } catch (e) { console.error(e); } },
         reset: () => { EXT.consolePos = null; saveExt(); applyConsolePos(); },
         diag: () => diag(),
+        // ── 복권 테스트용 ──
+        lottoUnlock: () => {   // 강제로 복권 해금(마지막 알바를 깽판으로 위장) + 돈 충전
+            STATE.lastJob = STATE.lastJob || { who: '', job: '테스트', report: '', pay: 0, mood: '' };
+            STATE.lastJob.pay = 5000;          // 알바비 5천원(≤1.5만) → 해금
+            STATE.lottoUsed = 0;               // 복권 횟수 리셋
+            STATE.money = (STATE.money || 0) + 5000;   // 긁을 돈 보충
+            saveState(STATE); renderAll();
+            console.log('[비스트로그] 🎰 복권 해금됨! 알바 탭 열고 복권 긁어보세요 (3장)');
+        },
+        lottoDraw: () => { try { buyLotto(); } catch (e) { console.error(e); } },  // 복권 바로 추첨
     };
 }
 if (typeof document !== 'undefined') {
