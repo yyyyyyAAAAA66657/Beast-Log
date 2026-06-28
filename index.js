@@ -1,2590 +1,2080 @@
-// 🐯 비스트로그 (Beast Log) v0.50.0 — 상태 0~100%(😊기분·🍖배고픔·⚡체력). 표정: 눈물/자는표정/병아리·판다 전용. 밥: 60%까지 무료+유료메뉴 고정. 작명소(첫무료/변경5만). 펫이름 세로배치+진화명병기.
-// 경험치: 레벨곡선 60+lv²×15, 선택별 고정값(협력8/도움6/함께4/기웃2/시비-3), 상태별 효율(잘돌볼수록↑), backfire(18%). 알바: {{char}}가 직접(그룹/1카드 다역 대응).
-// 아이템: RP맥락 드랍(등장소품/로어북/맥락생성)+사연(lore)+떡밥(조우유도), 희귀도⚪🟢🔵🟣, bond(💝 {{char}}/{{user}} 연관 깊을수록 귀함). 도감(인물/생물/사물).
-// v0.49 추가: 캐릭터별 저장(새챗에도 데이터 유지), 턴=자체카운터(시뮬 자동출현 폭발 수정), 자동출현 조우/상황 반반 3~4턴, 목록 미리보기3개+전체보기, {{char}}/{{user}} 매크로 치환.
-// v0.50 추가: 마스코트 9종 전면 재디자인 + 표정시스템 정비(호기심/병아리·판다·토끼 전용), 진화 3단계 색/디테일 갱신(백호왕관·구미호·손오공머리띠·현자단안경·도사판다 등), 🎰 즉석복권(깽판 알바 보완책 — 알바비≤1.5만 해금, 1천원/장, 알바당 3장, 꽝90%, {{char}}보이스).
-// 버전 3곳 동시 갱신: (1) 이 주석, (2) BEASTLOG_VERSION, (3) manifest.json
+// ─── 🎤 Hot Mic v2.30.1 ───
+// 캐릭터 몰래 보는 감독판 코멘터리
+// RP에 개입하지 않음. 해설은 기억되지 않음. 단방향.
 
-const BEASTLOG_VERSION = '0.50.0';
-const MODULE = 'beast_log';
-let LAST_ERROR = '';
-const DBG_LOG = [];
-function blLog(tag, detail) {
-    try {
-        const t = (typeof nowHHMM === 'function') ? nowHHMM() : '';
-        DBG_LOG.push(t + ' · ' + tag + (detail != null && detail !== '' ? ' · ' + String(detail).replace(/\s+/g, ' ').slice(0, 140) : ''));
-        if (DBG_LOG.length > 40) DBG_LOG.shift();
-    } catch (e) { /* noop */ }
-}
-try { console.log('[비스트로그] script loaded v' + BEASTLOG_VERSION); } catch (e) { /* noop */ }
+import { getContext, extension_settings } from '../../../extensions.js';
+import { event_types, eventSource, saveSettingsDebounced } from '../../../../script.js';
 
-function getCtx() {
-    try { if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) return SillyTavern.getContext(); }
-    catch (e) { /* noop */ }
-    return (typeof window !== 'undefined' && window.SillyTavern && window.SillyTavern.getContext)
-        ? window.SillyTavern.getContext() : null;
-}
-function blDebug(...a) { if (window.__beastlogDebug) console.log('[비스트로그]', ...a); }
-// {{char}}/{{user}} 매크로를 실제 이름으로 치환 — LLM 출력물 화면에 뿌리기 전에 사용
-function subMacros(s) {
-    if (s == null) return s;
-    const ctx = getCtx();
-    const charName = (ctx && ctx.name2) ? ctx.name2 : '그';
-    const userName = (ctx && ctx.name1) ? ctx.name1 : '나';
-    // SillyTavern의 substituteParams가 있으면 그것도 활용(다른 매크로까지), 없으면 직접 치환
-    let out = String(s);
-    try { if (ctx && typeof ctx.substituteParams === 'function') out = ctx.substituteParams(out); } catch (e) { /* noop */ }
-    return out.replace(/\{\{char\}\}/gi, charName).replace(/\{\{user\}\}/gi, userName);
-}
-function cryptoId() { try { return crypto.randomUUID(); } catch (e) { return 'bl-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); } }
-function nowHHMM() { try { return new Date().toTimeString().slice(0, 5); } catch (e) { return '--:--'; } }
-function nowDate() { try { const d = new Date(); return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`; } catch (e) { return '----.--.--'; } }
-function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+const EXT_NAME = 'hot-mic';
+const HOTMIC_VERSION = '2.30.1';
 
-// ── 마스코트 ──
-const MASCOTS = {
-    tiger: { label: '호랑이', stages: [{ min: 10, emoji: '🦁', name: '백수의 왕' }, { min: 5, emoji: '🐅', name: '호랑이' }, { min: 1, emoji: '🐯', name: '새끼 호랑이' }] },
-    cat: { label: '고양이', stages: [{ min: 10, emoji: '🐈‍⬛', name: '밤의 지배자' }, { min: 5, emoji: '🐈', name: '고양이' }, { min: 1, emoji: '🐱', name: '새끼 고양이' }] },
-    dog: { label: '강아지', stages: [{ min: 10, emoji: '🐺', name: '우두머리' }, { min: 5, emoji: '🐕', name: '개' }, { min: 1, emoji: '🐶', name: '강아지' }] },
-    chick: { label: '병아리', stages: [{ min: 10, emoji: '🐔', name: '새벽의 지배자' }, { min: 5, emoji: '🐤', name: '병아리' }, { min: 1, emoji: '🐣', name: '알병아리' }] },
-    hamster: { label: '햄스터', stages: [{ min: 10, emoji: '🧐', name: '현자 햄스터' }, { min: 5, emoji: '🐹', name: '통통 햄스터' }, { min: 1, emoji: '🐹', name: '햄스터' }] },
-    rabbit: { label: '토끼', stages: [{ min: 10, emoji: '🐇', name: '달의 토끼' }, { min: 5, emoji: '🐰', name: '토끼' }, { min: 1, emoji: '🐰', name: '아기 토끼' }] },
-    monkey: { label: '원숭이', stages: [{ min: 10, emoji: '🐒', name: '손오공' }, { min: 5, emoji: '🐒', name: '원숭이' }, { min: 1, emoji: '🐵', name: '아기 원숭이' }] },
-    fox: { label: '여우', stages: [{ min: 10, emoji: '🦊', name: '구미호' }, { min: 5, emoji: '🦊', name: '여우' }, { min: 1, emoji: '🦊', name: '새끼 여우' }] },
-    panda: { label: '판다', stages: [{ min: 10, emoji: '🐼', name: '도사 판다' }, { min: 5, emoji: '🐼', name: '판다' }, { min: 1, emoji: '🐼', name: '새끼 판다' }] },
+// ─── 기본 설정 ───
+const DEFAULT_SETTINGS = {
+    enabled: true,
+    state: 'ticker',          // 'icon' | 'ticker' | 'panel'
+    mode: 'variety',          // 'docu' | 'sports' | 'variety'
+    context: 'recent5',       // 'current' | 'recent5' | 'all'
+    profile: '',              // 연결 프로필 이름 ('' = 현재 연결 사용)
+    language: 'ko',           // 'ko' | 'en'
+    autoscroll: true,         // 자동 스크롤 on/off
+    scrollSpeed: 40,          // px/sec
+    fullscreen: false,        // 전체 펼침 상태
+    fxFrequency: 30,          // 마스코트 애니메이션 등장 확률 (%)
+    length: 'normal',         // 'short' | 'normal' | 'long' — 해설 분량
+    preset: 'all',            // 'all' | 'fact' | 'interview' | 'broadcast' — 구성 프리셋
+    opacity: 92,              // 자막바/패널 불투명도 (%)
+    theme: 'dark',            // 색상 테마
+    iconPos: null,            // 최소화 아이콘 위치 {x, y} (드래그로 변경, null=기본 우하단)
+    bookmarks: [],            // 특전 수록(북마크) 배열 — getSettings에서 own array 보장
 };
-const MASCOT_KEYS = Object.keys(MASCOTS);
 
-// ==== 마스코트 도트 스프라이트 (16x15, 런타임 SVG) ====
-const BL_INK = '#2e2316';
-const BL_SPRITES = {
-  tiger: { w:16, h:15, pal:{O:'#f6b94d',C:'#fdf6e3',B:'#7a4f28'}, rows:['.KKK.......KKK..','KOCCK.....KOCCK.','KOCCKKKKKKKOCCK.','KOOOOOOBOOOOOOK.','.KOOOOBBBOOOOK..','.KOOOOOBOOOOOK..','KOOOOOOOOOOOOOK.','KBBOOKOOOKOOBBK.','KOOOOKOOOKOOOOK.','KBBOOOOOOOOOBBK.','KOOOOOCKCOOOOOK.','KOOOOCCCCCOOOOK.','.KOOOCCCCCOOOK..','..KKKKKKKKKKK...','................'] },
-  cat: { w:16, h:15, pal:{C:'#fde8d0',O:'#f5933a',X:'#ff80c3',M:'#fde8d0'}, rows:['..KK.......KK...','..KCK.....KCK...','..KCOK...KOCK...','.KOOOKKKKKOOOK..','.KOOOOOOOOOOOK..','.KOOOOOOOOOOOK..','KOOOOOOOOOOOOOK.','KOOOOKOOOKOOOOK.','KOOOOKOOOKOOOOK.','KOOOOOOOOOOOOOK.','KOOOOOMXMOOOOOK.','KOOOOMMMMMOOOOK.','.KOOOMMMMMOOOK..','..KKKKKKKKKKK...','................'] },
-  dog: { w:16, h:15, pal:{O:'#f6b94d',B:'#7a4f28',C:'#fdf6e3'}, rows:['.KKK.......KKK..','KOOOK.....KOOOK.','KOOOKKKKKKKOOOK.','KKKOOOOOOOOOKKK.','.KOOOOOOOOOOOK..','.KOOOOOOOOOOOK..','KOOOBBOOOOOOOOK.','KOOOBKOOOKOOOOK.','KOOOOKOOOKOOOOK.','KOOOOOOOOOOOOOK.','KOOOOOCKCOOOOOK.','KOOOOCCCCCOOOOK.','.KOOOCCCCCOOOK..','..KKKKKKKKKKK...','................'] },
-  hamster: { w:16, h:15, pal:{C:'#fdf6e3',O:'#f6b94d'}, rows:['................','..KKK.....KKK...','.KCCOK...KOCCK..','.KCOOOKKKOOOCK..','.KOOOOOOOOOOOK..','.KOOOOOOOOOOOK..','.KOOOOOOOOOOOK..','KOOOOKOOOKOOOOK.','KOOOOKOOOKOOOOK.','KOOOOCCKCCOOOOK.','KOOOCCCCCCCOOOK.','.KOOCCCCCCCOOK..','..KCCCCCCCCCK...','...KKKKKKKKK....','................'] },
-  chick: { w:16, h:15, pal:{X:'#ffed24',O:'#f6b94d',C:'#fdf6e3'}, rows:['....KKKKKKK.....','...KXXXXXXXK....','..KXXXXXXXXXK...','.KXXXKXXXKXXXK..','.KXXXKXXXKXXXK..','.KXXXXXOXXXXXK..','KKXXXXXXXXXXXKK.','KKKXKKKKKXKKXKK.','KCCKCCCCCKCCKCK.','KCCCCCCCCCCCCCK.','KCCCCCCCCCCCCCK.','KCCCCCCCCCCCCCK.','.KCCCCCCCCCCCK..','..KKKKKKKKKKK...','................'] },
-  rabbit: { w:16, h:15, pal:{C:'#fdf6e3',X:'#ffa0d0'}, rows:['...KK.....KK....','..KCXK...KXCK...','..KCXK...KXCK...','..KCXK...KXCK...','..KCCK...KCCK...','..KCCCKKKCCCK...','.KCCCCCCCCCCCK..','.KCCCCCCCCCCCK..','.KCCCKCCCKCCCK..','.KCCCKCCCKCCCK..','.KCCCCCXCCCCCK..','.KCCCCCCCCCCCK..','..KCCCCCCCCCK...','...KKKKKKKKK....','................'] },
-  monkey: { w:16, h:15, eyeBg:'C', pal:{B:'#7a4f28',C:'#fdf6e3'}, rows:['................','....KKKKKKK.....','...KBBBBBBBK....','..KBBBBBBBBBK...','.KBBBBBBBBBBBK..','.KBBBCCCCCBBBK..','KKKBCCCCCCCBKKK.','KCBCCKCCCKCCBCK.','KCBCCKCCCKCCBCK.','KCBCCCCCCCCCBCK.','KKBCCCCKCCCCBKK.','.KBBCCCCCCCBBK..','..KBBBBBBBBBK...','...KKKKKKKKK....','................'] },
-  fox: { w:16, h:15, pal:{C:'#fdf6e3',X:'#fb6413'}, rows:['..KK.......KK...','.KCK.......KCK..','.KXXK.....KXXK..','.KXXXKKKKKXXXK..','.KXXXXXXXXXXXK..','.KXXXXXXXXXXXK..','.KXXXXXXXXXXXK..','KXXXXKXXXKXXXXK.','KXXXXKXXXKXXXXK.','KXXXXXXXXXXXXXK.','KXXXXXCKCXXXXXK.','.KXXXCCCCCXXXK..','..KKCCCCCCCKK...','...KKKKKKKKK....','................'] },
-  panda: { w:16, h:15, noExpr:true, pal:{C:'#fdf6e3'}, rows:['.KKK.......KKK..','KKKKK.....KKKKK.','KKKKKKKKKKKKKKK.','KKKKCCCCCCCKKKK.','.KKCCCCCCCCCKK..','..KCCCCCCCCCK...','.KCCKKCCCKKCCK..','.KCKKCKCKCKKCK..','KCKKKKKCKKKKKCK.','KCKKKKCCCKKKKCK.','KCCKKCCKCCKKCCK.','KCCCCCCCCCCCCCK.','.KCCCCCCCCCCCK..','..KKKKKKKKKKK...','................'] },
+// 색상 테마 정의 (배경 RGB, 강조색, 텍스트색, 버튼색)
+const HOTMIC_THEMES = {
+    light:     { name: '🤍 화이트',    bg: '248,247,245', panel: '#FFFFFF', text: '#2B2622', accent: '#A34B4B', border: '#D8D1C8' },
+    butter:    { name: '🧈 버터옐로우', bg: '255,247,214', panel: '#FFFDF4', text: '#4A3A22', accent: '#D9A520', border: '#E8DDB3' },
+    parchment: { name: '📜 양피지',    bg: '234,223,200', panel: '#F3E9D2', text: '#3A2B1A', accent: '#8B5E34', border: '#C8B89A' },
+    wine:      { name: '🍷 와인',      bg: '42,28,34',   panel: '#3A2630', text: '#F0E7E7', accent: '#9B3A4A', border: '#5B3A44' },
+    forest:    { name: '🌲 그린',      bg: '238,244,238', panel: '#FAFDFA', text: '#233423', accent: '#567A5B', border: '#C7D4C7' },
+    blue:      { name: '🌊 블루',      bg: '242,247,251', panel: '#FFFFFF', text: '#23364A', accent: '#4B77A8', border: '#D7E3EE' },
+    dark:      { name: '⚫ 블랙',      bg: '24,24,24',   panel: '#232323', text: '#EAEAEA', accent: '#C84C4C', border: '#383838' },
 };
-const MONO_INK = new Set(['K', 'B', 'D', 'Y', 'P', 'N']);
-// 표정: 눈 자리를 지우고 표정별로 다시 그림
-// 디폴트 눈 = 검정 세로 2칸 (왼눈 x5 / 오른눈 x9, y7~8). 호기심만 흰자(C) 추가.
-const EYE_BASE = [[5, 7], [5, 8], [9, 7], [9, 8]];
-const EYE_EXPR = {
-    open:  [[5, 7], [5, 8], [9, 7], [9, 8]],                              // 검정 세로 2칸 두 눈
-    happy: [[4, 8], [5, 7], [6, 8], [8, 8], [9, 7], [10, 8]],             // ^ ^ 웃는 눈
-    sad:   [[5, 7], [9, 7]],                                              // 윗눈꺼풀 + 눈물(EXTRA)
-    tired: [[5, 8], [9, 8]],                                              // - - 아래
-    blink: [[4, 8], [5, 8], [6, 8], [8, 8], [9, 8], [10, 8]],             // _ _ 감음
-    wink:  [[5, 7], [5, 8], [8, 8], [9, 8], [10, 8]],                     // ▣ _ 윙크
-    regal: [[5, 7], [9, 7]],                                             // 내려다봄
-    fierce:[[4, 7], [5, 8], [9, 8], [10, 7]],                            // \ / 사나운 눈썹(위엄)
-    sleep: [[4, 8], [5, 8], [6, 8], [8, 8], [9, 8], [10, 8]],            // 감은 눈 - - (넓은 일자) + zzz(EXTRA)
-    curious: [[4, 7], [4, 8], [5, 8], [9, 7], [9, 8], [10, 8]],          // 검정 3칸 + 흰자(EXTRA) — 호기심 ✨ (사용자 원본)
-};
-// 표정별 색상 추가 픽셀 [x, y, color] — 눈물(애니) / 호기심 흰자(고정)
-const TEAR = '#5a9fd6', ZCOL = '#7d9bd6';
-const EYE_EXPR_EXTRA = {
-    sad:  [[5, 8, TEAR], [5, 9, TEAR], [9, 8, TEAR], [9, 9, TEAR]],       // 눈 밑 눈물 ㅠㅠ
-    curious: [[5, 7, '#fdf6e3'], [10, 7, '#fdf6e3']],                    // 흰자 ✨ (왼눈 x5위, 오른눈 x10위)
-};
-// 토끼 전용 표정 (눈 1픽셀 아래: x5,x9 / y8~9). 일반 동물보다 한 칸 낮음.
-const RABBIT_EYE_BASE = [[5,8],[5,9],[9,8],[9,9]];
-const RABBIT_EXPR = {
-    open:  [[5,8],[5,9],[9,8],[9,9]],
-    happy: [[4,9],[5,8],[6,9],[8,9],[9,8],[10,9]],
-    sad:   [[5,8],[9,8]],
-    tired: [[5,9],[9,9]],
-    blink: [[4,9],[5,9],[6,9],[8,9],[9,9],[10,9]],
-    sleep: [[4,9],[5,9],[6,9],[8,9],[9,9],[10,9]],
-    curious: [[4,8],[4,9],[5,9],[9,8],[9,9],[10,9]],
-};
-const RABBIT_TEAR = [[5,9,TEAR],[5,10,TEAR],[9,9,TEAR],[9,10,TEAR]];
-const RABBIT_CURIOUS_WHITE = [[5,8,'#fdf6e3'],[10,8,'#fdf6e3']];
-// 자는 표정 zzz: 큰 Z 두 개를 대각선으로, 머리 위 여백(음수 y)에 그림. overflow:visible로 박스 밖 표시.
-// Z 한 글자 패턴(4×5): 윗가로/대각선/아랫가로
-const Z_PATTERN = [[0,0],[1,0],[2,0],[3,0], [2,1], [1,2], [0,3], [0,4],[1,4],[2,4],[3,4]];
-// 두 Z의 배치: [원점x, 원점y, 픽셀크기, 애니클래스]
-const SLEEP_ZS = [
-    { ox: 10.5, oy: -1.5, sz: 0.68, cls: 'bl-z1' },   // 작은 Z (머리/귀에 바짝)
-    { ox: 13, oy: -4.5, sz: 0.85, cls: 'bl-z2' },     // 큰 Z (대각선 위)
-];
-// 병아리 전용 표정 (점눈: 왼 x5,6 / 오른 x9,10, y4,5). base를 몸색으로 지우고 표정 픽셀
-// 병아리 전용 표정 (눈: 기본 x5,x9 세로 y3~4). 사용자가 직접 그린 좌표.
-const CHICK_EYE_BASE = [[4,3],[5,3],[4,4],[5,4],[9,3],[10,3],[9,4],[10,4]];
-const CHICK_EXPR = {
-    open:  [[5,3],[5,4],[9,3],[9,4]],            // 검정 세로 2칸
-    happy: [[5,3],[4,4],[6,4],[9,3],[8,4],[10,4]],  // ^ ^ 웃는 눈 (사용자 그림)
-    sad:   [[5,3],[9,3]],                        // 윗눈 + 눈물(EXTRA)
-    tired: [[5,4],[9,4]],                        // - -
-    blink: [[4,4],[5,4],[9,4],[10,4]],           // _ _
-    sleep: [[4,4],[5,4],[9,4],[10,4]],           // 졸린 긴 눈 (사용자 그림)
-    curious: [[4,3],[4,4],[5,4],[9,3],[9,4],[10,4]], // 검정 + 흰자(EXTRA) — 사용자 그림
-};
-const CHICK_TEAR = [[5,5,TEAR],[9,5,TEAR]];
-const CHICK_CURIOUS_WHITE = [[5,3,'#fdf6e3'],[10,3,'#fdf6e3']];  // 흰자: 왼눈 x5y3, 오른눈 x10y3
-// 판다 전용 표정 (흰자 Y: 왼 x4y7, 오른 x11y7). 흰자를 눈두덩(B) 안에서 이동
-// 판다 전용 표정 — 표정별 전체 rows (사용자가 직접 그림). 눈 영역만 다름.
-const PANDA_FACE = {
-    happy:   ['.KKK.......KKK..','KKKKK.....KKKKK.','KKKKKKKKKKKKKKK.','KKKKCCCCCCCKKKK.','.KKCCCCCCCCCKK..','..KCCCCCCCCCK...','.KCCKKCCCKKCCK..','.KCKCKKCKKCKCK..','KCKCKCKCKCKCKCK.','KCKKKKCCCKKKKCK.','KCCKKCCKCCKKCCK.','KCCCCCCCCCCCCCK.','.KCCCCCCCCCCCK..','..KKKKKKKKKKK...','................'],
-    curious: ['.KKK.......KKK..','KKKKK.....KKKKK.','KKKKKKKKKKKKKKK.','KKKKCCCCCCCKKKK.','.KKCCCCCCCCCKK..','..KCCCCCCCCCK...','.KCCKKCCCKKCCK..','.KCKKKKCKKKKCK..','KCKCKKKCKCKKKCK.','KCKKKKCCCKKKKCK.','KCCKKCCKCCKKCCK.','KCCCCCCCCCCCCCK.','.KCCCCCCCCCCCK..','..KKKKKKKKKKK...','................'],
-    tired:   ['.KKK.......KKK..','KKKKK.....KKKKK.','KKKKKKKKKKKKKKK.','KKKKCCCCCCCKKKK.','.KKCCCCCCCCCKK..','..KCCCCCCCCCK...','.KCCKKCCCKKCCK..','.KCKKKKCKKKKCK..','KCKKCCKCKCCKKCK.','KCKKKKCCCKKKKCK.','KCCKKCCKCCKKCCK.','KCCCCCCCCCCCCCK.','.KCCCCCCCCCCCK..','..KKKKKKKKKKK...','................'],
-    sleep:   ['.KKK.......KKK..','KKKKK.....KKKKK.','KKKKKKKKKKKKKKK.','KKKKCCCCCCCKKKK.','.KKCCCCCCCCCKK..','..KCCCCCCCCCK...','.KCCKKCCCKKCCK..','.KCKKKKCKKKKCK..','KCKKCCKCKCCKKCK.','KCKKKKCCCKKKKCK.','KCCKKCCKCCKKCCK.','KCCCCCCCCCCCCCK.','.KCCCCCCCCCCCK..','..KKKKKKKKKKK...','................'],
-};
-const PANDA_TEAR = [[5,10,TEAR],[9,10,TEAR]];   // 우는 표정 눈물 (기본 본체 + 눈물)
-// 진화 비주얼: tier2(자란다)=색 짙어짐, tier3(각성)=고유 변신. mono모드/picker/shop엔 미적용(tier 1)
-const SPR_CHICK2 = { w: 16, h: 15, pal: { X: '#ffed24', O: '#f6b94d' }, rows: ['....KKKKKKK.....','...KXXXXXXXK....','..KXXXXXXXXXK...','.KXXXXXXXXXXXK..','.KXXXXXXXXXXXK..','.KXXXKXXXKXXXK..','KXXXXKXXXKXXXKK.','KXXXXXXOXXXXXXK.','KXXXXXXXXXXXXXK.','KXXXXXXXXXXXXXK.','KXXXXXXXXXXXXXK.','KXXXXXXXXXXXXXK.','.KXXXXXXXXXXXK..','..KKKKKKKKKKK...','................'] };  // 2단계: 자란 병아리 (사용자 그림)
-const SPR_CHICK3 = { w: 16, h: 15, pal: { R: '#e2483a', C: '#fdf6e3', O: '#f6b94d' }, rows: ['.....RRRR.......','.....RRRRRR.....','..KKKKKKKKKKK...','.KCCCCCCCCCCCK..','.KCCCCCCCCCCCK..','.KCCKCCCCCKCCK..','KCCCCKCCCKCCCKK.','KCCCCCCOCCCCCCK.','KCCCCCCCCCCCCCK.','KCCCCCCCCCCCCCK.','KCCCCCCCCCCCCCK.','KCCCCCCCCCCCCCK.','.KCCCCCCCCCCCK..','..KKKKKKKKKKK...','................'] };  // 3단계: 닭 (사용자 그림, 빨강볏)
-const EVO_VIS = {
-    // 2단계=색 짙어짐, 3단계=고유 변신(컨셉 유지). 키는 새 디자인 팔레트 기준. 표정은 기본 눈 유지(특수표정 빼서 또렷).
-    tiger:   { 2: { pal: { O: '#df7d1c', B: '#5c3412' } },                          3: { pal: { O: '#f7c948', B: '#7a4a12' }, crown: '#ffd84d' } },   // 백호왕(금빛+왕관)
-    dog:     { 2: { pal: { O: '#a8702f', B: '#4a2f12' } },                          3: { pal: { O: '#9aa0aa', B: '#4a4e57', C: '#dde1e7' }, expr: 'fierce' } },     // 늑대(회색+사나운눈)
-    cat:     { 2: { pal: { O: '#7c8390', C: '#e8e4dc' } },                          3: { pal: { O: '#3a3f50', C: '#2a2e3c' }, eyeColor: '#74e3c4' } },               // 흑묘(청록눈)
-    fox:     { 2: { pal: { X: '#d4661f' } },                                        3: { pal: { X: '#cfcadb', C: '#ffffff' }, eyeColor: '#ffd24a' } },               // 구미호(은빛+금눈)
-    hamster: { 2: { pal: { O: '#d7c193' } },                                        3: { pal: { O: '#dcd2bb', C: '#fbf6e8' }, monocle: '#c79a3e' } },                // 현자 햄스터(단안경)
-    rabbit:  { 2: { pal: { X: '#e6a8aa' } },                                        3: { pal: { C: '#e7e9f5', X: '#c9b6e0' }, eyeColor: '#ffe79c' } },               // 월광 토끼(연보라)
-    monkey:  { 2: { pal: { B: '#5c3a1a', C: '#e6d2a4' } },                          3: { pal: { B: '#8a5a28', C: '#fff4d6' }, band: '#f0c84a' } },  // 손오공(머리띠)
-    chick:   { 2: { sprite: SPR_CHICK2 },                                           3: { sprite: SPR_CHICK3 } },                                    // 알→병아리→닭(형태변신)
-    panda:   { 2: { pal: { C: '#f5efe0' } },                                        3: { pal: { C: '#f0e6f5' }, pandaEye: '#ffd24a' } },                            // 도사 판다(따뜻한 연보라+금눈)
-};
-const EVO_CROWN = [[5, 1], [6, 1], [7, 1], [8, 1], [9, 1], [5, 0], [7, 0], [9, 0]];      // 왕관: 띠5 + 뿔3
-const EVO_COMB = [[6, 1], [7, 1], [8, 1], [9, 1], [6, 0], [8, 0]];                       // 닭 볏
-const EVO_BAND = [[4, 4], [5, 4], [9, 4], [10, 4], [6, 5], [8, 5], [3, 6], [4, 6], [5, 6], [6, 6], [7, 6], [8, 6], [9, 6], [10, 6], [11, 6]]; // 손오공 머리띠(긴고아) (사용자 그림)
-const EVO_MONOCLE = [[8, 6], [9, 6], [10, 6], [8, 7], [10, 7], [8, 8], [10, 8], [8, 9], [9, 9], [10, 9], [11, 10], [12, 11]]; // 단안경 ㅁ자 링(오른눈 둘레) + 체인 (사용자 그림)
-function evoTier(lv) { return lv >= 10 ? 3 : (lv >= 5 ? 2 : 1); }
-function spriteSVG(key, size, mono, expr, tier) {
-    let s = BL_SPRITES[key] || BL_SPRITES.tiger;
-    const vis = (!mono && tier && tier > 1 && EVO_VIS[key]) ? EVO_VIS[key][tier] : null;
-    if (vis && vis.sprite) s = vis.sprite;                 // 단계별 스프라이트 통째 교체(병아리 메타모포시스)
-    const palOv = (vis && vis.pal && !vis.sprite) ? vis.pal : null;
-    // 진화 표정은 중립(open)일 때만 적용 — 감정(슬픔/기쁨/깜빡임)이 항상 우선
-    let effExpr = expr;
-    if (vis && vis.expr && (!expr || expr === 'open')) effExpr = vis.expr;
-    const grid = [];
-    for (let y = 0; y < s.h; y++) {
-        const row = s.rows[y]; const line = [];
-        for (let x = 0; x < s.w; x++) {
-            const c = row[x];
-            let fill = null;
-            if (c !== '.') {
-                if (mono) fill = MONO_INK.has(c) ? BL_INK : null;
-                else if (palOv && palOv[c]) fill = palOv[c];
-                else fill = (c === 'K') ? BL_INK : (s.pal[c] || BL_INK);
-            }
-            line.push(fill);
-        }
-        grid.push(line);
-    }
-    if (!s.noExpr && key !== 'rabbit' && key !== 'chick' && effExpr && effExpr !== 'open' && EYE_EXPR[effExpr]) {   // noExpr 스프라이트(알)는 표정 고정 / 토끼·병아리는 전용
-        const body = mono ? null : ((palOv && palOv[s.eyeBg || 'O']) || s.pal[s.eyeBg || 'O'] || s.pal.O || BL_INK);
-        for (const [x, y] of EYE_BASE) grid[y][x] = body;             // 눈 지움(몸색)
-        // happy/sleep/blink/curious는 눈 영역(x4~6, x8~10, y7~8)의 검정 잔상만 지움(무늬 보존)
-        if (effExpr === 'happy' || effExpr === 'sleep' || effExpr === 'blink' || effExpr === 'curious') {
-            for (const ey of [7, 8]) for (const ex of [4, 5, 6, 8, 9, 10]) {
-                if (grid[ey][ex] === BL_INK) grid[ey][ex] = body;   // 검정(이전 눈)만 몸색으로
-            }
-        }
-        for (const [x, y] of EYE_EXPR[effExpr]) grid[y][x] = BL_INK;  // 표정 그림
-    }
-    // 토끼 전용 표정 (눈 1픽셀 아래 y8~9)
-    if (key === 'rabbit' && !mono && effExpr && effExpr !== 'open' && RABBIT_EXPR[effExpr]) {
-        const body = (palOv && palOv.C) || s.pal.C || s.pal.O;        // 토끼 눈 주변 = 흰색(C)
-        for (const [x, y] of RABBIT_EYE_BASE) grid[y][x] = body;
-        if (effExpr === 'happy' || effExpr === 'sleep' || effExpr === 'blink' || effExpr === 'curious') {
-            for (const ey of [8, 9]) for (const ex of [4, 5, 6, 8, 9, 10]) {
-                if (grid[ey][ex] === BL_INK) grid[ey][ex] = body;
-            }
-        }
-        for (const [x, y] of RABBIT_EXPR[effExpr]) grid[y][x] = BL_INK;
-    }
-    let tearPixels = null;   // 눈물 픽셀(애니메이션용) — grid에 직접 안 그리고 별도 렌더
-    if (key === 'rabbit' && !mono && effExpr === 'curious') {          // 토끼 호기심 흰자
-        for (const [x, y, col] of RABBIT_CURIOUS_WHITE) grid[y][x] = col;
-    } else if (key === 'rabbit' && !mono && effExpr === 'sad') {       // 토끼 눈물
-        tearPixels = RABBIT_TEAR.slice();
-    } else if (!s.noExpr && effExpr === 'curious' && EYE_EXPR_EXTRA.curious) {   // 호기심 흰자 — grid에 직접(고정)
-        for (const [x, y, col] of EYE_EXPR_EXTRA.curious) grid[y][x] = mono ? BL_INK : col;
-    } else if (!s.noExpr && effExpr && EYE_EXPR_EXTRA[effExpr]) {      // 색상 추가픽셀(눈물 애니)
-        tearPixels = EYE_EXPR_EXTRA[effExpr].map(([x, y, col]) => [x, y, mono ? BL_INK : col]);
-    }
-    // 병아리 전용 표정 (점눈 변형) — 단계 변신(닭) 전에만, mono 아닐 때
-    let pandaHalf = null;
-    if (key === 'chick' && !mono && (!vis || !vis.sprite) && effExpr && CHICK_EXPR[effExpr]) {
-        const body = s.pal.X || s.pal.O;     // 병아리 눈 주변 = 노랑(X)
-        for (const [x, y] of CHICK_EYE_BASE) grid[y][x] = body;       // 눈 지움
-        for (const [x, y] of CHICK_EXPR[effExpr]) grid[y][x] = BL_INK;
-        if (effExpr === 'sad') tearPixels = CHICK_TEAR.slice();
-        if (effExpr === 'curious') for (const [x, y, col] of CHICK_CURIOUS_WHITE) grid[y][x] = col;  // 호기심 흰자 ✨
-    }
-    // 판다 전용 표정 (표정별 본체 통째 교체) — mono 아닐 때
-    if (key === 'panda' && !mono && effExpr) {
-        let face = null;
-        if (effExpr === 'sad') { face = null; tearPixels = PANDA_TEAR.slice(); }  // 우는 표정 = 기본 + 눈물
-        else if (PANDA_FACE[effExpr]) face = PANDA_FACE[effExpr];
-        else if (effExpr === 'blink') face = PANDA_FACE.sleep;  // 깜빡임은 졸린 눈 재사용
-        if (face) {
-            for (let yy = 0; yy < s.h; yy++) for (let xx = 0; xx < s.w; xx++) {
-                const c = face[yy] ? face[yy][xx] : '.';
-                grid[yy][xx] = (c === '.') ? null : (c === 'K' ? BL_INK : (s.pal[c] || BL_INK));
-            }
-        }
-    }
-    // 판다 진화 금눈 (도사 판다) — 눈동자(흰자) 자리를 금색으로
-    if (key === 'panda' && !mono && vis && vis.pandaEye) {
-        for (const [x, y] of [[5, 7], [9, 7]]) grid[y][x] = vis.pandaEye;
-    }
-    if (vis && vis.eyeColor && !s.noExpr) {                            // 빛나는 눈(고양이/토끼/구미호)
-        let coords;
-        if (key === 'rabbit') coords = (effExpr && effExpr !== 'open' && RABBIT_EXPR[effExpr]) ? RABBIT_EXPR[effExpr] : RABBIT_EYE_BASE;  // 토끼는 1픽셀 내린 눈
-        else coords = (effExpr && effExpr !== 'open' && EYE_EXPR[effExpr]) ? EYE_EXPR[effExpr] : EYE_BASE;
-        for (const [x, y] of coords) grid[y][x] = vis.eyeColor;
-    }
-    if (vis && vis.crown) for (const [x, y] of EVO_CROWN) grid[y][x] = vis.crown;  // 왕관(호랑이)
-    if (vis && vis.comb) for (const [x, y] of EVO_COMB) grid[y][x] = vis.comb;     // 볏(병아리→닭)
-    if (vis && vis.band) for (const [x, y] of EVO_BAND) grid[y][x] = vis.band;     // 머리띠(원숭이왕)
-    if (vis && vis.monocle) for (const [x, y] of EVO_MONOCLE) grid[y][x] = vis.monocle; // 단안경(현자 햄스터)
-    let rects = '';
-    for (let y = 0; y < s.h; y++) {
-        let x = 0;
-        while (x < s.w) {
-            const f = grid[y][x];
-            if (f === null) { x++; continue; }
-            let run = 1;
-            while (x + run < s.w && grid[y][x + run] === f) run++;
-            rects += `<rect x="${x}" y="${y}" width="${run}" height="1" fill="${f}"/>`;
-            x += run;
-        }
-    }
-    // 판다 반픽셀 흰자(졸린 눈): 별도 rect로 아래 절반만
-    let extraRects = '';
-    if (pandaHalf) {
-        for (const [x, y] of pandaHalf.coords) extraRects += `<rect x="${x}" y="${y + 0.5}" width="1" height="0.5" fill="${pandaHalf.color}"/>`;
-    }
-    // 눈물 애니메이션: 좌/우 눈물을 각각 그룹으로 묶어 똑똑 떨어지게
-    let hasTear = false;
-    if (tearPixels && tearPixels.length) {
-        hasTear = true;
-        const leftPx = tearPixels.filter(([x]) => x <= 7);
-        const rightPx = tearPixels.filter(([x]) => x > 7);
-        const drawSet = (px, cls) => {
-            if (!px.length) return '';
-            const r = px.map(([x, y, col]) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${col}"/>`).join('');
-            return `<g class="${cls}">${r}</g>`;
-        };
-        extraRects += drawSet(leftPx, 'bl-tear bl-tear-l') + drawSet(rightPx, 'bl-tear bl-tear-r');
-    }
-    // 자는 표정: 큰 Z 두 개를 머리 위 여백에 그림. 병아리/판다도 자는 표정 허용.
-    const canSleep = !mono && (!s.noExpr || key === 'chick' || key === 'panda') && (!vis || !vis.sprite || key !== 'chick');
-    const isSleep = (effExpr === 'sleep' && canSleep);
-    if (isSleep) {
-        for (const z of SLEEP_ZS) {
-            let zr = '';
-            for (const [px, py] of Z_PATTERN) {
-                zr += `<rect x="${z.ox + px * z.sz}" y="${z.oy + py * z.sz}" width="${z.sz}" height="${z.sz}" fill="${ZCOL}"/>`;
-            }
-            extraRects += `<g class="${z.cls}">${zr}</g>`;
-        }
-    }
-    const h = Math.round(size * s.h / s.w);
-    const sleepCls = isSleep ? ' bl-sleeping' : '';
-    const ov = (isSleep || hasTear) ? ' style="overflow:visible"' : '';
-    return `<svg class="bl-sprite${sleepCls}" width="${size}" height="${h}" viewBox="0 0 ${s.w} ${s.h}"${ov} shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${rects}${extraRects}</svg>`;
-}
-function stateExpr() {
-    const hunger = STATE.hunger == null ? 80 : STATE.hunger;
-    const hp = STATE.hp == null ? 100 : STATE.hp;
-    const mood = STATE.mood == null ? 80 : STATE.mood;
-    if (hunger <= 20) return 'sad';     // 😢 배고픔 바닥 → 눈물
-    if (hp <= 20) return 'tired';       // 😪 체력 바닥
-    if (mood <= 20) return 'sad';       // 😢 기분 바닥 → 눈물
-    if (mood >= 60) return 'happy';     // 😊 기분 좋음
-    return 'open';                      // 😐 평온(기본)
-}
-let blinkTimer = null;
-let lastTouch = Date.now();        // 마지막 상호작용 시각
-let isSleeping = false;            // 졸고 있는 중인지
-let hungerWarnLevel = -1;          // 마지막으로 띄운 배고픔 경고 단계 (-1 없음, 0 = 20%경고, 1 = 0%경고)
-function mascotSVG(size, expr) { return spriteSVG(EXT.mascot, size, EXT.spriteMono === true, expr || (isSleeping ? 'sleep' : stateExpr()), evoTier(STATE.level)); }
-function setMascotEls(expr) {
-    const mono = EXT.spriteMono === true, tier = evoTier(STATE.level);
-    const sleeping = (expr === 'sleep');
-    const apply = (host, size) => {
-        if (!host) return;
-        host.innerHTML = spriteSVG(EXT.mascot, size, mono, expr, tier);
-        host.classList.toggle('bl-host-sleeping', sleeping);   // 자는 동안 컨테이너 두둥실 끔
-    };
-    if (consoleEl) apply(consoleEl.querySelector('.bl-pet-emoji-mini'), 30);
-    if (fullEl && fullEl.style.display !== 'none') apply(fullEl.querySelector('.bl-pet-emoji'), 72);
-    if (bubbleEl && bubbleEl.style.display !== 'none') apply(bubbleEl, 34);
-}
-const SLEEP_QUIET_MS = 120000;      // 2분간 채팅·조작 없으면 졸기 시작
-const HUNGER_DECAY_MS = 3 * 60 * 60 * 1000;  // 3시간당
-const HUNGER_DECAY_AMT = 8;        // -8%
-const HUNGER_DECAY_MAX_STEPS = 3;  // 오프라인 누적 상한(한 번에 최대 -24%) — 자고 일어났더니 바닥 방지
-function noteTouch() {
-    lastTouch = Date.now();
-    if (isSleeping) { isSleeping = false; setMascotEls(stateExpr()); }
-}
-// 배고픔 자동 감소 (채팅 켜져 있는 동안만, 깜빡임 틱에서 호출)
-function tickHungerDecay() {
-    if (!STATE) return;
-    const now = Date.now();
-    const last = STATE.lastHungerDecay || now;
-    if (now - last < HUNGER_DECAY_MS) return;
-    let steps = Math.floor((now - last) / HUNGER_DECAY_MS);
-    STATE.lastHungerDecay = last + steps * HUNGER_DECAY_MS;   // 타임스탬프는 실제 경과분만큼 갱신
-    steps = Math.min(steps, HUNGER_DECAY_MAX_STEPS);          // 깎이는 양은 상한 (오프라인 폭격 방지)
-    STATE.hunger = clamp0100((STATE.hunger == null ? 80 : STATE.hunger) - HUNGER_DECAY_AMT * steps);
-    // 배고픔 바닥 → 기분·체력 살짝 연쇄 (한 번에 -3씩만, 천천히)
-    if (STATE.hunger <= 0) {
-        STATE.mood = clamp0100((STATE.mood || 0) - 3);
-        STATE.hp = clamp0100((STATE.hp || 0) - 3);
-    }
-    // 셋 다 바닥 → 레벨 하락(진화도 자동 해제) — 죽음·행동불가는 절대 없음
-    if (STATE.hunger <= 0 && STATE.hp <= 0 && STATE.mood <= 0 && STATE.level > 1) {
-        const beforeTier = evoTier(STATE.level);
-        STATE.level -= 1;
-        STATE.xp = 0;
-        const afterTier = evoTier(STATE.level);
-        if (afterTier < beforeTier) flash('💧 너무 방치돼서… 모습이 되돌아갔어요');
-        else flash(`💧 레벨 다운… Lv.${STATE.level}`);
-    }
-    maybeHungerWarn();
-    saveState(STATE); renderAll();
-}
-// 배고픔 경고 토스트 (각 단계당 한 번씩, 설정 ON일 때만)
-function maybeHungerWarn() {
-    const warnOn = !STATE.settings || STATE.settings.hungerWarn !== false;
-    if (!warnOn) { hungerWarnLevel = -1; return; }
-    const h = STATE.hunger == null ? 80 : STATE.hunger;
-    if (h <= 0) {
-        if (hungerWarnLevel < 1) { flash('🐯 삐졌습니다…'); hungerWarnLevel = 1; }
-    } else if (h <= 20) {
-        if (hungerWarnLevel < 0 || hungerWarnLevel === -1) { flash('🐯 슬슬 배고픈 것 같아요'); hungerWarnLevel = 0; }
-    } else {
-        hungerWarnLevel = -1;  // 회복되면 경고 리셋
-    }
-}
-function isSleepy() {
-    const quiet = (Date.now() - lastTouch) > SLEEP_QUIET_MS;
-    const ok = (STATE.hunger || 0) >= 40 && (STATE.hp || 0) >= 40 && (STATE.mood || 0) >= 40;
-    return quiet && ok;   // 일정 시간 조용 + 상태 양호하면 잔다 (랜덤 제거 → 안 튐)
-}
-function startBlink() {
-    if (blinkTimer) return;
-    blinkTimer = setInterval(() => {
-        if (typeof document !== 'undefined' && document.hidden) return;
-        tickHungerDecay();
-        // 졸기 판정 (상태 양호 + 충분히 조용)
-        if (isSleepy()) {
-            if (!isSleeping) { isSleeping = true; setMascotEls('sleep'); }
-            return;   // 자는 동안엔 깜빡임 안 함 (애니메이션 유지)
-        }
-        if (isSleeping) { isSleeping = false; setMascotEls(stateExpr()); return; }   // 깨어남
-        if (Math.random() > 0.5) return;
-        setMascotEls('blink');
-        setTimeout(() => { if (!isSleeping) setMascotEls(stateExpr()); }, 160);
-    }, 3600);
-}
-function curMascot() { return MASCOTS[EXT.mascot] || MASCOTS.tiger; }
-function evoStage(lv) { const st = curMascot().stages; for (const e of st) { if (lv >= e.min) return e; } return st[st.length - 1]; }
-// 펫 표시 이름: 직접 지은 이름이 있으면 그걸, 없으면 진화 단계명
-function petDisplayName() { return (STATE.petName && STATE.petName.trim()) ? STATE.petName.trim() : evoStage(STATE.level).name; }
-const RENAME_PRICE = 50000;   // 작명소 이용료 (첫 작명은 무료, 이후 변경은 유료 — 함부로 못 바꾸게)
+// 구 테마키 호환 (midnight→blue, sepia→parchment)
+const THEME_ALIAS = { midnight: 'blue', sepia: 'parchment' };
 
-// ── 희귀도 / 아이템 타입 ──
-const RARITY = { common: { label: '일반', dot: '⚪' }, rare: { label: '희귀', dot: '🟢' }, epic: { label: '영웅', dot: '🔵' }, legend: { label: '전설', dot: '🟣' } };
-function rollRarity() { const r = Math.random(); if (r < 0.005) return 'legend'; if (r < 0.05) return 'epic'; if (r < 0.2) return 'rare'; return 'common'; }
-// 드랍 희귀도 — RP 주인공({{char}})과 관련 깊은 물건일수록 귀하다 (bond 0~3)
-// bond: 0=무관(잡템) / 1=조금 / 2=꽤 의미있음 / 3=각별({{char}}의 소중한 물건)
-function rollDropRarity(bond) {
-    const b = Math.max(0, Math.min(3, bond || 0));
-    // 비선형: 0·1은 거의 잡템, 의미 있는 2·3부터 확 귀해짐
-    const bonus = [0, 0.05, 0.22, 0.36][b];
-    const r = Math.random() + bonus;
-    if (r >= 1.15) return 'legend';                    // 전설은 bond 2~3에서만 가끔
-    if (r >= 0.95) return 'epic';
-    if (r >= 0.72) return 'rare';
-    return 'common';
-}
-// LLM이 drop을 안 줄 때 쓰는 폴백 아이템 풀 (데드팬·엉뚱)
-const FALLBACK_DROPS = [
-    { name: '녹슨 숟가락', emoji: '🥄', price: 0 }, { name: '낡은 단추', emoji: '🔘', price: 0 },
-    { name: '정체불명의 씨앗', emoji: '🌰', price: 0 }, { name: '구겨진 영수증', emoji: '🧾', price: 0 },
-    { name: '반쪽짜리 동전', emoji: '🪙', price: 0 }, { name: '말라버린 잎', emoji: '🍂', price: 0 },
-    { name: '작은 돌멩이', emoji: '🪨', price: 0 }, { name: '빛바랜 사진', emoji: '🖼️', price: 0 },
-    { name: '엉킨 실타래', emoji: '🧶', price: 0 }, { name: '이 빠진 컵', emoji: '🥤', price: 0 },
-    { name: '수상한 열쇠', emoji: '🗝️', price: 0 }, { name: '깃털 하나', emoji: '🪶', price: 0 },
-    { name: '조개껍데기', emoji: '🐚', price: 0 }, { name: '구슬 한 알', emoji: '🔮', price: 0 },
-];
-const BAIT_CHANCE = { common: 0.10, rare: 0.40, epic: 0.70, legend: 1.0 };
-function rollItemType(rarity) { return Math.random() < (BAIT_CHANCE[rarity] != null ? BAIT_CHANCE[rarity] : 0.10) ? 'bait' : 'junk'; }
+// 모드 표시 라벨 (특전 수록함·UI 공용)
+const MODE_LABELS = { docu:'🎬 다큐', sports:'🏟️ 중계', variety:'📺 예능', court:'⚖️ 법정수사', guide:'🎮 공략집', wiki:'📚 위키', news:'📰 속보', bible:'🛕 성전', community:'🗣️ 커뮤니티', scp:'🗂️ 기밀문서' };
+// director 블록 라벨 (모드별)
+const DIR_LABELS = { docu:'[ 관찰 ]', sports:'[ 중계 ]', variety:'[ 제작진 ]', court:'[ 사건 파일 ]', guide:'[ 이벤트 ]', wiki:'[ 개요 ]', news:'[ 속보 ]', bible:'[ 경전 ]', community:'[ 반응 ]', scp:'[ 기밀 ]' };
 
-// ── 관계 (양방향 "익숙함" 트랙, 내부 수치는 숨김) ──
-const REL_TIERS = [
-    { min: 24, label: '단골', tone: 'warm' },
-    { min: 14, label: '친근함', tone: 'warm' },
-    { min: 7, label: '익숙함', tone: 'warm' },
-    { min: 3, label: '몇 번 본 사이', tone: 'mid' },
-    { min: 0, label: '낯섦', tone: 'mid' },
-    { min: -3, label: '경계', tone: 'cold' },
-    { min: -8, label: '불신', tone: 'cold' },
-    { min: -9999, label: '피함', tone: 'cold' },
-];
-function relTierObj(aff) { for (const t of REL_TIERS) { if (aff >= t.min) return t; } return REL_TIERS[REL_TIERS.length - 1]; }
-function relTier(aff) { return relTierObj(aff).label; }
-function affinityDelta(kind) { return ({ help: 2, cooperate: 3, activity: 1, interact: 0, loot: 0, flee: 0, attack: -2 })[kind] || 0; }
+// 디버그는 저장하지 않는 휘발성 (이스터에그로 켠 세션에만 유효, 새로고침 시 자동 off)
+let HOTMIC_DEBUG = false;
+let HOTMIC_LAST = null; // 마지막 생성 진단 정보 (모드/서브/프롬프트/응답/에러)
 
-// ── 알바 / 돈 / 상점 ──
-const MASCOT_PRICE = { tiger: 0, cat: 0, dog: 0, monkey: 100000, chick: 150000, hamster: 170000, rabbit: 170000, fox: 200000, panda: 200000 };
-const JOB_LOAD = ['알바 뛰는 중…', '시급 계산 중…', '사장님 눈치 보는 중…', '진상 응대 중…', '허드렛일 처리 중…'];
-// ── 복권 (깽판 알바 보완책) ──
-const LOTTO_PRICE = 1000;          // 1장 가격
-const LOTTO_UNLOCK = 15000;        // 마지막 알바비 ≤ 이 금액일 때만 해금
-const LOTTO_MAX = 3;               // 알바 1회당 최대 구매 횟수
-const LOTTO_LOAD = ['긁는 중…', '두근두근…', '제발…', '이번엔…', '운명의 한 장…'];
-// 당첨표: 꽝 많게(기대값 850원<1천원, 보통은 손해). 5만원은 로망(0.5%). [상금, 가중치]
-const LOTTO_TABLE = [
-    { prize: 0,     w: 900, label: '꽝' },
-    { prize: 5000,  w: 70,  label: '5천원' },
-    { prize: 10000, w: 25,  label: '1만원' },
-    { prize: 50000, w: 5,   label: '5만원' },
-];
-function ownsMascot(k) { return (STATE.owned || []).includes(k); }
-function fmtMoney(n) { return (n || 0).toLocaleString('ko-KR') + '원'; }
-function jobRemaining() {
-    const cd = (STATE.jobCD == null ? 3 : STATE.jobCD);
-    const since = (STATE.turnCount || 0) - (STATE.lastJobCount || 0);
-    return Math.max(0, Math.min(cd, cd - since));   // 남은 턴(답장 횟수 기준)
+function getSettings() {
+    if (!extension_settings[EXT_NAME]) {
+        extension_settings[EXT_NAME] = { ...DEFAULT_SETTINGS };
+    }
+    // 누락 키 보강 (구버전 설정 호환)
+    for (const k in DEFAULT_SETTINGS) {
+        if (extension_settings[EXT_NAME][k] === undefined) {
+            extension_settings[EXT_NAME][k] = DEFAULT_SETTINGS[k];
+        }
+    }
+    // 특전 수록(북마크) 배열 보장 (공유 참조 방지)
+    if (!Array.isArray(extension_settings[EXT_NAME].bookmarks)) {
+        extension_settings[EXT_NAME].bookmarks = [];
+    }
+    return extension_settings[EXT_NAME];
 }
-function canWork() { return jobRemaining() <= 0; }
-function buildJobPrompt() {
-    const members = groupMemberNames();
-    const whoLine = members.length > 1
-        ? `이 채팅엔 여러 캐릭터(${members.join(', ')})가 있다. 그 중 상황상 가장 어울리는 캐릭터 한 명이 알바를 뛰고 왔다. 그 한 명을 골라 그의 시점·성격으로 써라.`
-        : `이 RP에 등장하는 캐릭터 중 한 명이 직접 알바를 뛰고 왔다. (대화 맥락에 여러 명이 나오면 — 한 카드에 여러 인물이 설정돼 있든, 여럿이 등장하든 — 그 중 지금 상황에 가장 어울리는 한 명을 골라라. 한 명만 있으면 그 캐릭터다.)`;
-    return `RP 속 캐릭터가 잠깐 "알바"를 뛰고 온 상황이다. 그 알바와 결과를 만든다. (유저나 펫이 아니라, RP 캐릭터가 일한 것)
-${whoLine}
-${getScene()}규칙:
-- 그 캐릭터의 세계/처지/성격에 맞는 알바를 골라라. 판타지면 용병·약초 채집·여관 설거지, 현대면 편의점·전단지, SF면 화물 하역 등. 장면에서 끌어내라. 세계관에 안 맞는 알바 금지(판타지에 편의점 X).
-- **그 캐릭터의 성격이 후기(report)와 소감(mood)에 묻어나게 하라.** 무뚝뚝하면 무뚝뚝하게, 거만하면 투덜대며, 성실하면 묵묵하게.
-- report와 mood는 **그 캐릭터 본인이 직접 겪고 말하는 시점**으로 써라. 그 캐릭터를 제3자처럼 부르거나(예: "○○에게 빌려라"), 유저/펫이 시킨 것처럼 쓰지 마라. 어디까지나 그 캐릭터가 스스로 다녀온 알바다.
-- **who에는 실제로 알바를 뛴 그 캐릭터의 이름을 정확히 적어라** (대화에 나온 이름 그대로).
-- 데드팬 코미디. 짧은 알바 후기 한 편.
-- 보수는 짜다(현실 알바처럼 적게). 단위는 정수 '원' 환산값으로 pay에 넣어라(대략 20000~90000, 사건 나면 더 적거나 0).
-- 가끔(30%) 사건/사고(incident)로 보수가 깎이거나 황당한 일.
-형식(JSON만, 코드펜스 금지): {"who":"알바 뛴 캐릭터 이름","job":"알바 이름/장소","report":"그 캐릭터가 일하고 온 2~3문장 데드팬 후기","pay":정수,"incident":"한 줄 사건 또는 null","mood":"그 캐릭터의 한 줄 소감"}
-[대화 맥락]
-${getConvo()}`;
-}
-const QUEST_FLAVORS = ['유저가 직접 하는 엉뚱하고 사소한 행동', '{{char}}에게서 특정 반응·대사·표정을 끌어내기', '{{char}}가 먼저 어떤 행동을 하게 만들기', '장면이 다른 장소나 분위기로 넘어가게 만들기', '새로운 NPC(제3자)가 끼어들거나 그와 엮이기', '{{char}}와의 관계·감정이 한 발 움직이는 순간', '주변 환경/배경에서 사소한 사건이 벌어지기', '그 장소에 있을 법한 물건을 줍거나 손에 넣기', '말장난·대화로 {{char}}를 한 방 먹이기', '용기 내거나 민망함을 무릅쓰는 것'];
-function recentQuestsHint() {
-    const goals = [];
-    (STATE.quests || []).forEach(q => goals.push(q.goal));
-    (STATE.secrets || []).forEach(s => { if (s.goal) goals.push(s.goal); });
-    if (!goals.length) return '';
-    return `\n[최근 퀘스트] ${goals.slice(0, 8).join(' / ')}\n위와 겹치거나 비슷한 목표는 절대 내지 마라. 결도 소재도 완전히 다른 걸로.`;
-}
-function buildQuestPrompt() {
-    return `너는 RP 주인공({{char}})에게 줄 "퀘스트"(목표+보상)를 하나 만든다.
-${getScene()}규칙:
-- 목표(goal)는 이 RP 안에서 {{char}}/유저의 행동·대사로 달성 가능한 것. 시스템이 강제하는 게 아니라, 대화하다 보면 일어날 법한 일.
-- **goal은 짧은 한 문장으로 깔끔하게 끝맺어라.** 데드팬이라 약간 길어도 되지만, "~하고, ~하며, ~을 묵묵히…" 식으로 절을 줄줄이 잇지 마라. 한 동작/한 상황으로 압축. (대략 40자 안쪽 권장, 절대 문단 금지)
-- 이번 퀘스트는 "${pick(QUEST_FLAVORS)}" 쪽 방향으로 잡아라. 매번 색깔이 다르게, 진부하지 않게.
-- **목표의 '주체'를 다양하게 — 유저가 직접 하는 것만이 아니라:** {{char}}가 어떤 말·행동을 하게 만들기, {{char}}에게서 특정 반응을 받아내기, 장면이 다른 곳/분위기로 넘어가기, 새 NPC가 끼어들거나 그와 엮이기, 배경에서 사건이 벌어지기 등 — 화살표를 여러 방향으로 돌려라.
-- **반드시 지금 세계관·장소·상황에 자연스럽게 들어맞는 목표여야 한다.** 그 장면에 있을 법하지 않은 소품·장소·인물을 요구하지 마라(좁은 자취방인데 럭비공·말[馬]을 찾으라는 식 금지). 거기 실제로 있을 법한 것으로만.
-- 다양한 예시 결: "{{char}}가 먼저 화제를 돌리게 만들기", "{{char}}에게서 '고맙다'는 말 듣기", "둘이 다른 방으로 자리를 옮기기", "지나가던 누군가가 말을 걸게 하기", "{{char}}를 말문 막히게 하기", "이 방에 있을 법한 물건으로 장난치기" 등 — 위는 예시일 뿐, 지금 장면에 맞는 새 걸 지어라.
-- 너무 거창/추상(세계 구하기 등) 금지. 한 장면~몇 턴 안에 자연스럽게 될 소소한 것. 데드팬·엉뚱 유머. 한국어.
-- 보상(rewardType): "money"(1만~10만), "item"(엉뚱한 물건), "xp"(경험치), "secret"(지금 이 RP 맥락에 맞는 {{char}}의 의외의 비밀). 비중은 item > xp > money > secret 정도. secret은 관계·감정이 얽힌 목표일 때만.${recentQuestsHint()}
-형식(JSON만, 코드펜스 금지): {"goal":"목표 한 줄","emoji":"목표 이모지 하나","rewardType":"money|item|xp|secret","reward":money면 정수·item이면 "물건이름"·xp면 정수(10~40)·secret이면 null}
-[대화 맥락]
-${getConvo()}`;
-}
-function buildQuestCheckPrompt(q) {
-    return `아래 "목표"가 최근 RP 대화에서 실제로 달성됐는지 엄격하게 판정해라. 어설프게 인정하지 말 것 — 정황상 분명히 일어났을 때만 done:true.
-판정 기준:
-- 말·관찰만으로는 부족하다. 목표가 요구하는 일이 실제로 일어났는지 봐라.
-- **연속성·맥락을 본다:** 달성 과정에 세계관·장소·상황과 어긋나는 게 끼면(좁은 자취방에 난데없이 럭비공이 튀어나오는 식, 그 장면에 있을 리 없는 소품·인물이 갑자기 등장) 인정하지 마라. 그 자리에 자연스럽게 있을 법한 것으로 이뤄져야 한다.
-- 억지로 끼워맞춘 전개, 맥락 없이 편의상 소환된 물건/사건은 불인정.
-목표: "${q.goal}"
-${getScene()}판정 형식(JSON만): {"done":true 또는 false,"reason":"왜 됐는지/안 됐는지 한 문장으로 짧고 완결되게 (대략 40자 이내, 중간에 끊기지 않게)","secret":${q.rewardType === 'secret' ? '달성됐다면 지금 이 RP의 인물·장소·사건 맥락에 딱 맞는 {{char}}만의 구체적인 비밀 한 줄(일반적이거나 어디서나 통할 법한 비밀 금지), 아니면 null' : 'null'}}
-[대화 맥락]
-${getConvo()}`;
-}
-function normalizeJob(o) {
-    o = o || {};
-    let pay = parseInt(o.pay, 10); if (!Number.isFinite(pay)) pay = 30000;
-    pay = Math.max(0, Math.min(200000, pay));
-    return {
-        who: (o.who && o.who !== 'null') ? subMacros(String(o.who)).slice(0, 24) : '',
-        job: subMacros(String(o.job || '이름 모를 알바')).slice(0, 40),
-        report: subMacros(String(o.report || '시간만 흘렀다.')).slice(0, 400),
-        pay,
-        incident: (o.incident && o.incident !== 'null') ? subMacros(String(o.incident)).slice(0, 160) : null,
-        mood: (o.mood && o.mood !== 'null') ? subMacros(String(o.mood)).slice(0, 120) : '',
-    };
-}
-let _blBusy = false;
-async function onWork() {
-    if (_blBusy) return;
-    if (!canWork()) { flash(`아직 일하고 온 지 얼마 안 됐어요 — ${jobRemaining()}턴 뒤에`); return; }
-    _blBusy = true;
-    showLoading(pick(JOB_LOAD));
+
+// 연결 프로필 목록 읽기 (Connection Manager)
+function getConnectionProfiles() {
     try {
-        const txt = await llmGenerate(buildJobPrompt(), 4096);
-        closePopup(); applyJob(normalizeJob(parseLLMJson(txt)));
-    } catch (err) { closePopup(); if (!handleLlmError(err)) applyJob({ job: '벽돌 나르기', report: '허리만 나갔다. 사장은 어디론가 사라졌다.', pay: 15000, incident: '사장 잠적', mood: '...' }); }
-    finally { _blBusy = false; }
-}
-function applyJob(job) {
-    STATE.money = (STATE.money || 0) + job.pay;
-    job.id = cryptoId(); job.time = nowHHMM();
-    STATE.lastJob = job;
-    STATE.jobs = STATE.jobs || [];
-    STATE.jobs.unshift(job);
-    if (STATE.jobs.length > 30) STATE.jobs.length = 30;
-    STATE.lastJobCount = (STATE.turnCount || 0);
-    STATE.jobCD = 2 + Math.floor(Math.random() * 3);   // 다음 알바까지 2~4회 랜덤
-    STATE.lottoUsed = 0;                                // 새 알바 → 복권 횟수 리셋
-    STATE.hunger = clamp0100((STATE.hunger == null ? 80 : STATE.hunger) - 12);   // 알바 → 배고파짐
-    if (Math.random() < 0.35) STATE.hp = clamp0100((STATE.hp == null ? 100 : STATE.hp) - 10);   // 가끔 고된 노동 → 체력↓
-    saveState(STATE); renderAll();
-    showJobResult(job);
-}
-function deleteJob(id) { STATE.jobs = (STATE.jobs || []).filter(j => j.id !== id); saveState(STATE); renderFull(); }
-function clearJobs() { showConfirm('알바 내역 비우기', '알바 기록을 전부 지울까요? (돈은 그대로)', () => { STATE.jobs = []; STATE.lastJob = null; saveState(STATE); renderAll(); }); }
-
-// ── 복권 ──
-function lottoUnlocked() {
-    return true;   // ⚠️ 테스트용 임시: 항상 해금 (원복 시 아래 주석 코드로)
-    // const lj = STATE.lastJob;
-    // if (!lj) return false;
-    // return (lj.pay || 0) <= LOTTO_UNLOCK;   // 알바비 1.5만 이하일 때만
-}
-function lottoLeft() { return Math.max(0, LOTTO_MAX - (STATE.lottoUsed || 0)); }
-function canLotto() { return lottoUnlocked() && lottoLeft() > 0 && (STATE.money || 0) >= LOTTO_PRICE; }
-function drawLotto() {
-    const total = LOTTO_TABLE.reduce((s, t) => s + t.w, 0);
-    let r = Math.random() * total;
-    for (const t of LOTTO_TABLE) { if ((r -= t.w) < 0) return t; }
-    return LOTTO_TABLE[0];
-}
-function buildLottoPrompt(result, lastPay) {
-    const win = result.prize > 0;
-    const members = groupMemberNames();
-    const lastWho = (STATE.lastJob && STATE.lastJob.who && STATE.lastJob.who.trim()) || '';
-    const whoLine = lastWho
-        ? `방금 알바를 뛴 건 "${lastWho}"다. 같은 캐릭터가 복권도 긁었다. 그의 시점·성격으로 써라.`
-        : (members.length > 1
-            ? `이 채팅엔 여러 캐릭터(${members.join(', ')})가 있다. 방금 알바를 뛰고 온 그 캐릭터가 복권을 긁었다. 가장 어울리는 한 명을 골라 그의 시점·성격으로 써라.`
-            : `이 RP에 등장하는 캐릭터 중 방금 알바를 뛴 그 캐릭터가 직접 복권을 긁었다. (한 명만 있으면 그 캐릭터다.)`);
-    return `RP 속 캐릭터가 방금 알바를 뛰었는데 ${fmtMoney(lastPay)}밖에 못 벌었다(쥐꼬리/사건). 홧김에/혹은 한탕 노리고 즉석복권 한 장(${fmtMoney(LOTTO_PRICE)})을 긁었다. 결과는 **${result.label}**(${win ? fmtMoney(result.prize) + ' 당첨' : '꽝'}). 그 장면을 만든다. (유저나 펫이 아니라, RP 캐릭터가 직접 긁은 것)
-${whoLine}
-${getScene()}규칙:
-- **그 캐릭터의 성격이 후기(voice)와 소감(mood)에 진하게 묻어나게 하라.** 무뚝뚝하면 무뚝뚝하게, 거만하면 "이딴 거에 기대다니" 투덜대며, 성실하면 멋쩍게, 허세 있으면 큰소리치다 머쓱하게. 그 캐릭터의 세계/처지에 맞는 곳에서 긁게 하라(현대면 편의점·자판기 옆, 판타지면 그 세계의 도박/제비뽑기 식으로 치환).
-- voice와 mood는 **그 캐릭터 본인이 직접 겪고 말하는 시점**으로 써라. 제3자처럼 부르거나 유저/펫이 시킨 것처럼 쓰지 마라.
-- voice: 복권 산 계기(왜 샀나) + 긁는 과정·결과를 2~3문장 데드팬 코미디로 (알바 후기 정도 길이).
-- mood: 그 결과를 본 그 캐릭터의 한 줄 소감(짧고 그 캐릭터다운 말투로).
-- ${win ? '당첨이지만 상금도 짜다(인생역전 아님). 너무 들뜨지 말고 그 캐릭터다운 반응.' : '꽝. 허무하거나 분하거나 — 그 캐릭터답게.'}
-- **who에는 실제로 복권을 긁은 그 캐릭터의 이름을 정확히 적어라** (대화에 나온 이름 그대로).
-형식(JSON만, 코드펜스 금지): {"who":"복권 긁은 캐릭터 이름","voice":"2~3문장 데드팬 후기","mood":"한 줄 소감"}
-[대화 맥락]
-${getConvo()}`;
-}
-async function buyLotto() {
-    if (_blBusy) return;
-    if (!canLotto()) {
-        if (!lottoUnlocked()) flash('💸 복권은 알바비 1만5천원 이하일 때만…');
-        else if (lottoLeft() <= 0) flash('🎰 이번 알바 복권은 다 썼다 (다음 알바 후 다시)');
-        else flash(`💸 ${fmtMoney(LOTTO_PRICE - (STATE.money || 0))} 모자람`);
-        return;
-    }
-    _blBusy = true;
-    STATE.money = (STATE.money || 0) - LOTTO_PRICE;
-    STATE.lottoUsed = (STATE.lottoUsed || 0) + 1;
-    const lastPay = (STATE.lastJob && STATE.lastJob.pay) || 0;
-    const result = drawLotto();
-    if (result.prize > 0) STATE.money = (STATE.money || 0) + result.prize;
-    saveState(STATE); renderAll();
-    showLoading(pick(LOTTO_LOAD));
-    let voice = '', mood = '', who = '';
-    try {
-        const txt = await llmGenerate(buildLottoPrompt(result, lastPay), 1024);
-        const o = parseLLMJson(txt);
-        voice = subMacros(String(o.voice || '')).slice(0, 300);
-        mood = subMacros(String(o.mood || '')).slice(0, 120);
-        who = subMacros(String(o.who || '')).slice(0, 40);
-    } catch (err) { if (!handleLlmError(err)) { voice = result.prize > 0 ? '…당첨이네. 별 거 아니지만.' : '…꽝이다. 그럴 줄 알았어.'; } }
-    finally { _blBusy = false; }
-    closePopup();
-    showLottoResult(result, voice, mood, who);
-}
-function resetLotto() { STATE.lottoUsed = 0; saveState(STATE); renderAll(); }
-const FEED_FOOD = ['편의점 삼각김밥', '길에서 주운 붕어빵', '유통기한 임박 소시지', '수상한 통조림', '사장이 남긴 식은 치킨', '정체불명의 사료', '눅눅한 새우깡', '반쯤 녹은 아이스크림', '누가 흘린 호두과자'];
-const FEED_FREE_CAP = 60;   // 무료로 채울 수 있는 배고픔 상한
-const FEED_FREE_GAIN = 20;  // 무료 1회 회복량
-// 유료 먹이 메뉴: 회복량 → 가격
-const FEED_PAID_MENU = [
-    { gain: 5, price: 10000, food: '고급 트릿 한 알' },
-    { gain: 10, price: 15000, food: '수제 간식 한 접시' },
-    { gain: 30, price: 20000, food: '푸짐한 진수성찬' },
-];
-function onFeed() {
-    const hunger = STATE.hunger == null ? 80 : STATE.hunger;
-    // 이미 배부름
-    if (hunger >= 100) {
-        STATE.pendingFeed = null;
-        showNote('🍖 밥 주기', '이미 배가 빵빵하다', '더는 못 먹겠다는 표정으로 고개를 돌린다.');
-        return;
-    }
-    // 무료 구간: 60% 미만이면 무료로 먹임
-    if (hunger < FEED_FREE_CAP) {
-        STATE.pendingFeed = null;   // 무료 구간 진입 → 특식 메뉴 리셋
-        STATE.hunger = clamp0100(Math.min(FEED_FREE_CAP, hunger + FEED_FREE_GAIN));
-        STATE.mood = clamp0100((STATE.mood || 0) + 5);
-        saveState(STATE); renderAll();
-        showNote('🍖 밥 주기', `'${pick(FEED_FOOD)}'`, pick(FEED_LINE));
-        return;
-    }
-    // 유료 구간: 60% 이상이면 특식 구매 제안. 한 번 뜬 메뉴는 고정(취소 후 다시 눌러도 동일)
-    let menu = STATE.pendingFeed;
-    if (!menu) {
-        menu = pick(FEED_PAID_MENU);
-        STATE.pendingFeed = menu;   // 메뉴 고정
-        saveState(STATE);
-    }
-    const money = STATE.money || 0;
-    if (money < menu.price) {
-        showNote('🍖 특식 가게', `'${menu.food}' — ${fmtMoney(menu.price)}`, `배고픔 +${menu.gain}%\n돈이 ${fmtMoney(menu.price - money)} 모자란다. 알바라도 뛰자.`);
-        return;
-    }
-    showConfirm('🍖 특식 구매', `'${menu.food}'\n배고픔 +${menu.gain}% · ${fmtMoney(menu.price)}\n\n사서 먹일까요?`, () => {
-        STATE.money = (STATE.money || 0) - menu.price;
-        STATE.hunger = clamp0100((STATE.hunger || 0) + menu.gain);
-        STATE.mood = clamp0100((STATE.mood || 0) + 8);
-        STATE.hp = clamp0100((STATE.hp || 0) + 4);
-        STATE.pendingFeed = null;   // 구매 완료 → 메뉴 해제
-        saveState(STATE); renderAll();
-        showNote('🍖 특식', `'${menu.food}'`, pick(FEED_LINE));
-    });
-}
-function resetMoney() { showConfirm('돈 리셋', `보유 금액 ${fmtMoney(STATE.money)}을(를) 0원으로 되돌릴까요?`, () => { STATE.money = 0; saveState(STATE); renderAll(); flash('💰 0원으로 리셋'); }); }
-
-// ── 퀘스트 (RP 읽어 판정, 주입 없음) ──
-const QUEST_MAX = 3;
-function questRemaining() { const cd = (STATE.questCD == null ? 0 : STATE.questCD); return Math.max(0, cd - (getChatLen() - (STATE.lastQuestTurn == null ? -99 : STATE.lastQuestTurn))); }
-function canQuest() { return questRemaining() <= 0; }
-function normalizeQuest(o) {
-    o = o || {};
-    let rt = ['item', 'xp', 'secret', 'money'].includes(o.rewardType) ? o.rewardType : 'money';
-    // 비중 보정: LLM이 money로 쏠리는 경향 → item > xp > money > secret 분포로 재배분
-    if (rt === 'money' && Math.random() < 0.55) {
-        const r = Math.random();
-        rt = r < 0.45 ? 'item' : (r < 0.85 ? 'xp' : 'money');
-    }
-    let reward = null;
-    if (rt === 'money') { let m = parseInt(o.reward, 10); reward = Number.isFinite(m) ? Math.max(10000, Math.min(100000, m)) : 30000; }
-    else if (rt === 'item') { reward = subMacros(String(o.reward || '수상한 물건')).slice(0, 30); }
-    else if (rt === 'xp') { let x = parseInt(o.reward, 10); reward = Number.isFinite(x) ? Math.max(10, Math.min(40, x)) : (10 + Math.floor(Math.random() * 31)); }
-    return { id: cryptoId(), goal: subMacros(String(o.goal || '뭔가 해내기')).slice(0, 140), emoji: String(o.emoji || '🎯').slice(0, 4), rewardType: rt, reward, time: nowHHMM() };
-}
-async function onNewQuest() {
-    if (_blBusy) return;
-    if ((STATE.quests || []).length >= QUEST_MAX) { showNote('🎯 퀘스트', '의뢰판이 꽉 찼다', `진행 중인 퀘스트 ${QUEST_MAX}개부터 끝내라.`); return; }
-    if (!canQuest()) { showNote('🎯 퀘스트', '새 의뢰가 아직 없다', `${questRemaining()}턴쯤 더 굴러야 새 게 들어온다.`); return; }
-    _blBusy = true; showLoading('퀘스트 받는 중…');
-    try {
-        const txt = await llmGenerate(buildQuestPrompt(), 2048);
-        closePopup(); addQuest(normalizeQuest(parseLLMJson(txt)));
-    } catch (err) { closePopup(); if (!handleLlmError(err)) addQuest(normalizeQuest({ goal: '{{char}} 한 번 웃기기', emoji: '😄', rewardType: 'money', reward: 30000 })); }
-    finally { _blBusy = false; }
-}
-function addQuest(q) {
-    STATE.quests = STATE.quests || []; STATE.quests.unshift(q);
-    STATE.lastQuestTurn = getChatLen(); STATE.questCD = 2 + Math.floor(Math.random() * 3);   // 다음 퀘스트까지 2~4턴 잠김
-    saveState(STATE); renderFull(); flash(`🎯 새 퀘스트: ${q.goal}`);
-}
-function deleteQuest(id) { STATE.quests = (STATE.quests || []).filter(q => q.id !== id); saveState(STATE); renderFull(); }
-async function onCheckQuest(id) {
-    if (_blBusy) return;
-    const q = (STATE.quests || []).find(x => x.id === id); if (!q) return;
-    _blBusy = true; showLoading('달성했는지 확인 중…');
-    try {
-        const txt = await llmGenerate(buildQuestCheckPrompt(q), 1024);
-        closePopup(); const r = parseLLMJson(txt) || {};
-        if (r.done) completeQuest(q, r.secret);
-        else showQuestFail(q, String(r.reason || '').slice(0, 140));
-    } catch (err) { closePopup(); if (!handleLlmError(err)) flash('확인 실패, 다시 시도'); }
-    finally { _blBusy = false; }
-}
-function completeQuest(q, secretText) {
-    let rewardMsg = '';
-    if (q.rewardType === 'money') { STATE.money = (STATE.money || 0) + q.reward; rewardMsg = `💰 ${fmtMoney(q.reward)} 획득`; }
-    else if (q.rewardType === 'item') { STATE.items.unshift({ id: cryptoId(), name: q.reward, emoji: '🎁', rarity: 'common', itemType: null, price: 0 }); if (STATE.items.length > 80) STATE.items.length = 80; rewardMsg = `🎁 '${q.reward}' 획득`; }
-    else if (q.rewardType === 'xp') { const x = q.reward || 20; STATE.xp = (STATE.xp || 0) + x; levelCheck(); rewardMsg = `⭐ 경험치 +${x}`; }
-    else { const sec = subMacros(String(secretText || '…사실 별 거 아니었다')).slice(0, 140); STATE.secrets = STATE.secrets || []; STATE.secrets.unshift({ id: cryptoId(), text: sec, goal: q.goal, time: nowHHMM() }); if (STATE.secrets.length > 50) STATE.secrets.length = 50; rewardMsg = `🔒 ${sec}`; }
-    STATE.quests = (STATE.quests || []).filter(x => x.id !== q.id);
-    saveState(STATE); renderAll();
-    showQuestDone(q, rewardMsg, q.rewardType === 'secret' ? 'secret' : '');
-}
-const QUEST_DONE_LINE = ['해냈다. 별 거 아니라는 듯 굴지만 티가 난다.', '목표 달성. 세상에 흔적 하나 남겼다.', '됐다. 의외로 쉬웠다는 표정이다.', '클리어. 보상은 챙겨야지.', '성공. 누가 봤든 안 봤든 한 건 한 거다.'];
-const QUEST_FAIL_LINE = ['김칫국부터 마셨다.', '아직 멀었다. 다시 가서 제대로 해와라.', '그 정도로는 어림도 없다.', '눈썹을 치켜올린다. 인정 못 하겠다는 거다.', '성에 안 찬다는 표정이다.'];
-const FEED_LINE = ['우걱우걱. 순식간에 사라졌다.', '맛있는지는 모르겠지만 일단 먹었다.', '받아먹고는 더 없냐는 눈으로 쳐다본다.', '질보다 양이라는 듯 흡입했다.', '한 입에 털어넣고 만족한 표정이다.', '의심스럽게 냄새를 맡더니, 결국 먹었다.'];
-function showNote(badge, title, body, tone) {
-    closePopup();
-    const pop = document.createElement('div'); pop.id = 'beastlog-popup';
-    pop.innerHTML = `
-      <div class="bl-pop-card bl-cat-npc">
-        <div class="bl-pop-badge">${escapeHtml(badge)}</div>
-        ${title ? `<div class="bl-pop-title">${escapeHtml(title)}</div>` : ''}
-        ${body ? `<div class="bl-note-body${tone ? ' ' + tone : ''}">${escapeHtml(body)}</div>` : ''}
-        <button class="bl-pop-ignore bl-result-ok">확인</button>
-      </div>`;
-    mountPopup(pop, true);
-    pop.querySelector('.bl-result-ok').addEventListener('click', closePopup);
-}
-function showQuestDone(q, rewardMsg, tone) {
-    closePopup();
-    const pop = document.createElement('div'); pop.id = 'beastlog-popup';
-    pop.innerHTML = `
-      <div class="bl-pop-card bl-cat-npc">
-        <div class="bl-pop-badge">🎯 퀘스트 성공</div>
-        <div class="bl-pop-title">${q.emoji || '🎯'} ${escapeHtml(q.goal)}</div>
-        <div class="bl-note-body">${escapeHtml(pick(QUEST_DONE_LINE))}</div>
-        <div class="bl-quest-reward${tone === 'secret' ? ' secret' : ''}">${escapeHtml(rewardMsg)}</div>
-        <button class="bl-pop-ignore bl-result-ok">확인</button>
-      </div>`;
-    mountPopup(pop, true);
-    pop.querySelector('.bl-result-ok').addEventListener('click', closePopup);
-}
-function showQuestFail(q, reason) {
-    closePopup();
-    const pop = document.createElement('div'); pop.id = 'beastlog-popup';
-    const why = reason ? `“${reason}”\n` : '';
-    pop.innerHTML = `
-      <div class="bl-pop-card bl-cat-situation">
-        <div class="bl-pop-badge">🎯 아직이야</div>
-        <div class="bl-pop-title">${q.emoji || '🎯'} ${escapeHtml(q.goal)}</div>
-        <div class="bl-note-body">${escapeHtml(why + pick(QUEST_FAIL_LINE))}</div>
-        <button class="bl-pop-ignore bl-result-ok">확인</button>
-      </div>`;
-    mountPopup(pop, true);
-    pop.querySelector('.bl-result-ok').addEventListener('click', closePopup);
-}
-const DONATE_TO = ['길고양이 급식소', '동네 비둘기 연합', '사장님 외제차 기름값', '익명의 너구리', '폐지 줍는 어르신', '유기견 보호소', '바다거북 구조대', '수상한 종교 단체', '나무 심기 운동', '정체불명의 모금함', '옆자리 다람쥐', '세계 평화 기금'];
-function onDonate() {
-    if ((STATE.money || 0) <= 0) { flash('후원할 돈이 없다… 빈손이다'); return; }
-    const amt = STATE.money, to = pick(DONATE_TO);
-    showConfirm('전 재산 후원', `보유한 ${fmtMoney(amt)}을(를) 전부 후원할까요?\n(돌려받지 못합니다)`, () => {
-        STATE.money = 0; saveState(STATE); renderAll();
-        flash(`💝 '${to}'에 ${fmtMoney(amt)} 후원됐습니다`);
-    });
-}
-function buyMascot(k) {
-    if (!MASCOTS[k]) return;
-    if (ownsMascot(k)) { EXT.mascot = k; saveExt(); renderAll(); flash('이미 보유 — 선택됨'); return; }
-    const price = MASCOT_PRICE[k] || 0;
-    if ((STATE.money || 0) < price) { flash(`💸 ${fmtMoney(price - (STATE.money || 0))} 모자람`); return; }
-    showConfirm('데려오기', `${MASCOTS[k].label}을(를) ${fmtMoney(price)}에 데려올까요?`, () => {
-        STATE.money -= price;
-        STATE.owned = Array.from(new Set([...(STATE.owned || []), k]));
-        EXT.mascot = k; saveExt(); saveState(STATE); renderAll();
-        flash(`🏪 ${MASCOTS[k].label} 데려옴!`);
-    });
-}
-function shopListHtml() {
-    return MASCOT_KEYS.map(k => {
-        const owned = ownsMascot(k), price = MASCOT_PRICE[k] || 0, cur = EXT.mascot === k;
-        let right;
-        if (cur) right = '<span class="bl-shop-cur">사용중</span>';
-        else if (owned) right = `<button class="bl-shop-buy" data-m="${k}">선택</button>`;
-        else right = `<button class="bl-shop-buy${(STATE.money || 0) >= price ? '' : ' off'}" data-m="${k}">💰 ${fmtMoney(price)}</button>`;
-        return `<div class="bl-shop-row${cur ? ' on' : ''}">${spriteSVG(k, 34, EXT.spriteMono === true)}<span class="bl-shop-nm">${MASCOTS[k].label}</span>${right}</div>`;
-    }).join('');
-}
-function showJobResult(job) {
-    closePopup();
-    const ctx = getCtx();
-    const charName = (job.who && job.who.trim()) ? job.who.trim() : ((ctx && ctx.name2) ? ctx.name2 : '');
-    const pop = document.createElement('div'); pop.id = 'beastlog-popup';
-    pop.innerHTML = `
-      <div class="bl-pop-card bl-cat-npc">
-        <div class="bl-pop-badge">🛠️ ${charName ? escapeHtml(charName) + '의 ' : ''}알바 후기</div>
-        <div class="bl-pop-title">${escapeHtml(job.job)}</div>
-        <div class="bl-job-report">${escapeHtml(job.report)}</div>
-        ${job.incident ? `<div class="bl-af-rare">⚠️ ${escapeHtml(job.incident)}</div>` : ''}
-        <div class="bl-job-pay">💰 +${fmtMoney(job.pay)}</div>
-        ${job.mood ? `<div class="bl-job-mood">💭 ${escapeHtml(job.mood)}</div>` : ''}
-        <button class="bl-pop-ignore bl-result-ok">확인 · 보유 💰 ${fmtMoney(STATE.money)}</button>
-      </div>`;
-    mountPopup(pop);
-    pop.querySelector('.bl-result-ok').addEventListener('click', closePopup);
-}
-
-function showLottoResult(result, voice, mood, who) {
-    closePopup();
-    const ctx = getCtx();
-    const charName = (who && who.trim()) ? who.trim()
-        : ((STATE.lastJob && STATE.lastJob.who && STATE.lastJob.who.trim()) ? STATE.lastJob.who.trim()
-        : ((ctx && ctx.name2) ? ctx.name2 : ''));
-    const win = result.prize > 0;
-    const pop = document.createElement('div'); pop.id = 'beastlog-popup';
-    pop.innerHTML = `
-      <div class="bl-pop-card bl-cat-npc">
-        <div class="bl-pop-badge">🎰 ${charName ? escapeHtml(charName) + '의 ' : ''}즉석복권</div>
-        <div class="bl-pop-title">${win ? '🎉 ' + escapeHtml(result.label) + ' 당첨!' : '💢 꽝'}</div>
-        ${voice ? `<div class="bl-job-report">${escapeHtml(voice)}</div>` : ''}
-        <div class="bl-job-pay">${win ? '💰 +' + fmtMoney(result.prize) : '🪦 -' + fmtMoney(LOTTO_PRICE)}</div>
-        ${mood ? `<div class="bl-job-mood">💭 ${escapeHtml(mood)}</div>` : ''}
-        <div class="bl-lotto-left">🎟️ 남은 복권 ${lottoLeft()}/${LOTTO_MAX}</div>
-        <button class="bl-pop-ignore bl-result-ok">확인 · 보유 💰 ${fmtMoney(STATE.money)}</button>
-      </div>`;
-    mountPopup(pop);
-    pop.querySelector('.bl-result-ok').addEventListener('click', closePopup);
-}
-const LOAD_APPEAR = ['두리번거리는 중...', '킁킁 냄새 맡는 중...', '골목을 기웃거리는 중...', '수상한 기척을 쫓는 중...', '풀숲을 헤집는 중...', '누군가 다가오는 중...', '뭔가 어슬렁대는 중...', '주변을 살피는 중...', '발소리를 듣는 중...', '고개를 갸웃하는 중...', '냄새의 출처를 찾는 중...'];
-const LOAD_SIT = ['바람 냄새 맡는 중...', '하늘을 올려다보는 중...', '공기가 바뀌는 걸 느끼는 중...', '낌새를 살피는 중...', '뭔가 다가오는 중...', '분위기를 재는 중...', '먹구름을 보는 중...', '이상한 예감이 드는 중...', '곤란한 일이 다가오는 중...'];
-const LOAD_RESOLVE = ['무슨 일이 벌어지는 중...', '눈치 보는 중...', '잠깐 숨 참는 중...', '상황이 흘러가는 중...', '결과를 지켜보는 중...', '두근대는 중...', '침을 꼴깍 삼키는 중...', '귀를 쫑긋 세우는 중...'];
-const NO_NEWS = ['…별다른 뒷소문은 없었다.', '아무 일도 일어나지 않았다. 정말로.', '소문이 돌기엔 너무 사소했다.', '아무도 신경 쓰지 않았다.', '세상은 평소처럼 무심했다.'];
-const AFTER_POOL = ['며칠 뒤, 그 사람은 당신을 꽤 괜찮은 사람으로 기억하고 있었다.', '소문은 며칠 만에 퍼졌다. 진실은 아무도 몰랐다.', '3일 뒤에도 누군가는 아직 그 일을 오해하고 있었다.', '그 장면은 한동안 누군가의 술자리 안주가 되었다.'];
-function rollAfter() { return Math.random() < 0.18 ? pick(AFTER_POOL) : null; }
-
-// ── 전역 설정 ──
-function defaultExt() { return { connectionProfile: '', autoDetect: false, cooldownTurns: 3, mascot: 'tiger', contextDepth: 'balance', consolePos: null, bubblePos: null, chainOn: true, spriteMono: false, theme: 'pudding' }; }
-let EXT = defaultExt();
-function loadExt() {
-    const ctx = getCtx();
-    if (!ctx || !ctx.extensionSettings) return defaultExt();
-    ctx.extensionSettings[MODULE] = Object.assign(defaultExt(), ctx.extensionSettings[MODULE] || {});
-    return ctx.extensionSettings[MODULE];
-}
-function saveExt() { const ctx = getCtx(); if (ctx && ctx.saveSettingsDebounced) ctx.saveSettingsDebounced(); }
-
-// ── 채팅별 상태 ──
-const STATE_KEY = 'beast_log_state';
-function defaultState() {
-    return {
-        uuid: cryptoId(), level: 1, xp: 0, title: '갓 들어온 손님', rep: 0,
-        mood: 80, hunger: 80, hp: 100, petName: '',
-        items: [], encounters: [], npcs: {},
-        currentNpc: null, currentSituation: null,
-        money: 0, owned: ['tiger', 'cat', 'dog'], lastJobTurn: -99, lastJob: null, jobs: [],
-        quests: [], secrets: [],
-        pins: [],
-        lastInjectTurn: -99, lastHungerDecay: Date.now(), pendingFeed: null,
-        turnCount: 0, lastInjectCount: 0, lastJobCount: 0,
-        statScale: 100,
-        settings: { injectDefault: false, hungerWarn: true },
-    };
-}
-// 구버전(0~5) 데이터를 0~100으로 변환
-function migrateState(s) {
-    if (!s || typeof s !== 'object') return s;
-    if (s.statScale === 100) return s;   // 이미 변환됨
-    const conv = (v, def) => {
-        if (v == null) return def;
-        const n = Number(v);
-        if (!Number.isFinite(n)) return def;
-        return (n <= 5) ? Math.round(n * 20) : Math.round(n);  // 0~5 → 0~100
-    };
-    s.mood = conv(s.mood, 80);
-    s.hunger = conv(s.hunger, 80);
-    s.hp = conv(s.hp, 100);
-    if (s.lastHungerDecay == null) s.lastHungerDecay = Date.now();
-    s.statScale = 100;
-    return s;
-}
-function loadState() {
-    const ctx = getCtx();
-    if (!ctx) return defaultState();
-    // 1순위: 캐릭터 카드에 저장된 데이터 (같은 캐릭터면 채팅 바뀌어도 유지)
-    let e = null;
-    try {
-        const cid = ctx.characterId;
-        if (cid != null && ctx.characters && ctx.characters[cid]) {
-            const ext = ctx.characters[cid].data && ctx.characters[cid].data.extensions;
-            if (ext && ext[STATE_KEY]) e = ext[STATE_KEY];
-        }
-    } catch (err) { /* noop */ }
-    // 2순위(폴백): 그룹챗·캐릭터 미선택 시 채팅 메타데이터
-    if (!e && ctx.chatMetadata && ctx.chatMetadata[STATE_KEY]) e = ctx.chatMetadata[STATE_KEY];
-    if (e && typeof e === 'object') {
-        const isNew = (e.statScale === 100);   // 원본에 신버전 마커가 있는지 (merge 전 판정)
-        const m = Object.assign(defaultState(), e);
-        m.settings = Object.assign(defaultState().settings, e.settings || {});
-        m.npcs = e.npcs || {};
-        if (!isNew) {                          // 구버전(0~5) → 0~100 변환 (한 번만)
-            m.statScale = 0;
-            migrateState(m);
-        }
-        return m;
-    }
-    return defaultState();
-}
-function saveState(s) {
-    const ctx = getCtx();
-    if (!ctx) return;
-    let savedToChar = false;
-    // 1순위: 캐릭터 카드에 저장 (같은 캐릭터면 모든 채팅에서 유지)
-    try {
-        const cid = ctx.characterId;
-        if (cid != null && ctx.characters && ctx.characters[cid] && typeof ctx.writeExtensionField === 'function') {
-            ctx.writeExtensionField(cid, STATE_KEY, s);   // 캐릭터 카드 extensions에 기록
-            savedToChar = true;
-        }
-    } catch (err) { /* noop */ }
-    // 폴백: 캐릭터별 저장이 안 되면(그룹챗 등) 채팅 메타데이터에
-    if (!savedToChar && ctx.chatMetadata) {
-        ctx.chatMetadata[STATE_KEY] = s;
-        if (ctx.saveMetadataDebounced) ctx.saveMetadataDebounced();
-        else if (ctx.saveMetadata) ctx.saveMetadata();
-    }
-}
-let STATE = defaultState();
-
-// ── 백업 / 복원 / 초기화 ──
-function exportData() {
-    try {
-        const blob = { _beastlog: BEASTLOG_VERSION, exportedAt: new Date().toISOString(), state: STATE };
-        const json = JSON.stringify(blob, null, 2);
-        const a = document.createElement('a');
-        a.href = 'data:application/json;charset=utf-8,' + encodeURIComponent(json);
-        a.download = `beastlog-backup-${new Date().toISOString().slice(0, 10)}.json`;
-        document.documentElement.appendChild(a); a.click(); a.remove();
-        flash('💾 백업 파일 저장됨');
-    } catch (e) { flash('백업 실패'); blDebug('export', e); }
-}
-function importData() {
-    const inp = document.createElement('input');
-    inp.type = 'file'; inp.accept = 'application/json,.json';
-    inp.addEventListener('change', () => {
-        const f = inp.files && inp.files[0]; if (!f) return;
-        const r = new FileReader();
-        r.onload = () => {
-            try {
-                const blob = JSON.parse(String(r.result));
-                const s = blob && blob.state ? blob.state : blob;
-                if (!s || typeof s !== 'object') throw new Error('형식 오류');
-                showConfirm('백업 불러오기', '지금 데이터를 백업으로 덮어쓸까요? 되돌릴 수 없어요.', () => {
-                    STATE = Object.assign(defaultState(), s);
-                    STATE.settings = Object.assign(defaultState().settings, s.settings || {});
-                    STATE.npcs = s.npcs || {};
-                    migrateState(STATE);
-                    saveState(STATE); renderAll(); refreshMemory();
-                    flash('📂 백업 복원됨');
-                });
-            } catch (e) { flash('불러오기 실패 — 파일 확인'); blDebug('import', e); }
-        };
-        r.readAsText(f);
-    });
-    document.documentElement.appendChild(inp); inp.click(); inp.remove();
-}
-function resetAll() {
-    showConfirm('완전 초기화', '레벨·돈·도감·일지·가방·관계 전부 처음으로 돌립니다. 되돌릴 수 없어요. 백업부터 받는 걸 권장!', () => {
-        STATE = defaultState();
-        EXT.mascot = 'tiger'; saveExt();
-        saveState(STATE); renderAll(); refreshMemory();
-        flash('🔄 처음으로 초기화됨');
-    });
-}
-
-// ── 텀 ──
-function getChatLen() { const c = getCtx(); return (c && Array.isArray(c.chat)) ? c.chat.length : 0; }
-function injectRemaining() {
-    const cd = (STATE.injectCD == null ? 3 : STATE.injectCD);
-    const since = (STATE.turnCount || 0) - (STATE.lastInjectCount || 0);
-    return Math.max(0, Math.min(cd, cd - since));   // 남은 턴(답장 횟수 기준)
-}
-function canInject() { return injectRemaining() <= 0; }
-function markInject() { STATE.lastInjectCount = (STATE.turnCount || 0); STATE.injectCD = 3 + Math.floor(Math.random() * 2); saveState(STATE); renderAll(); }
-function getProfiles() {
-    const ctx = getCtx();
-    const cm = (ctx && ctx.extensionSettings && ctx.extensionSettings.connectionManager) || null;
-    return (cm && Array.isArray(cm.profiles)) ? cm.profiles : [];
-}
-
-// ── [STUB] 폴백 ──
-function generateAppearStub() {
-    const pool = [
-        { category: 'npc', emoji: '🐕', title: '동네 개가 따라온다', foe: '동네 개', foeType: 'creature', choices: [{ label: '쓰다듬는다', kind: 'activity' }, { label: '간식을 준다', kind: 'help' }, { label: '모른 척 걷는다', kind: 'flee' }] },
-        { category: 'npc', emoji: '🛋️', title: '버려진 소파가 보인다', foe: '버려진 소파', foeType: 'object', choices: [{ label: '앉아본다', kind: 'activity' }, { label: '살펴본다', kind: 'interact' }, { label: '지나친다', kind: 'flee' }] },
-        { category: 'npc', emoji: '🐦', title: '새 한 마리가 빤히 본다', foe: '참견하는 새', foeType: 'creature', choices: [{ label: '말을 건다', kind: 'help' }, { label: '같이 본다', kind: 'activity' }, { label: '시비를 건다', kind: 'attack' }] },
-    ];
-    return pick(pool);
-}
-function generateSituationStub() {
-    const pool = [
-        { category: 'situation', emoji: '🌧️', title: '갑자기 비가 쏟아진다', desc: '우산은 당연히 없다.', choices: [{ label: '뛴다', kind: 'activity' }, { label: '비를 맞는다', kind: 'interact' }, { label: '피한다', kind: 'flee' }] },
-        { category: 'situation', emoji: '📦', title: '택배가 도착했다', desc: '아무도 시킨 적 없는 택배다.', choices: [{ label: '열어본다', kind: 'loot' }, { label: '반송한다', kind: 'flee' }, { label: '모른 척한다', kind: 'interact' }] },
-    ];
-    return pick(pool);
-}
-function resolveByKind(item, kind) {
-    const base = {
-        flee: { result: '회피', exp: 2, rep: 0, drop: null, inner: { foe: '상대는 떠나는 뒷모습을 멀뚱히 봤다.', user: '당신은 현명했다고 우겼을 것이다.' } },
-        help: { result: '도움', exp: 6, rep: 1, drop: null, inner: { foe: '고맙다곤 했지만, 동정인가 싶기도 했다.', user: '당신은 별 생각 없었을 것이다.' } },
-        cooperate: { result: '협력', exp: 8, rep: 1, drop: null, inner: { foe: '주변은 둘을 꽤 가까운 사이로 봤다.', user: '당신은 효율만 따졌을 뿐이다.' } },
-        activity: { result: '함께함', exp: 4, rep: 0, drop: null, inner: { foe: '그 시간을 나쁘지 않게 보냈다.', user: '당신은 즐거웠다고 인정하긴 싫었을 것이다.' } },
-        loot: { result: '주움', exp: 4, rep: 0, drop: { name: '녹슨 숟가락', emoji: '🥄', price: 0 }, inner: { foe: '아무도 안 주운 데는 이유가 있었다.', user: '당신은 왜 주웠는지 모를 것이다.' } },
-        interact: { result: '기웃', exp: 2, rep: 0, drop: null, inner: { foe: '별 반응이 없었다.', user: '당신은 괜히 건드렸다 싶었을 것이다.' } },
-        attack: { result: '시비', exp: -3, rep: -1, drop: null, inner: { foe: '상대는 황당해했다. 뭐 이런 게 다 있나.', user: '당신은 왜 그랬는지 스스로도 몰랐을 것이다.' } },
-    };
-    return base[kind] || base.interact;
-}
-
-// ── LLM 엔진 ──
-const VALID_KINDS = ['help', 'cooperate', 'activity', 'loot', 'interact', 'flee', 'attack'];
-function stripTags(s) { return String(s || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim(); }
-function depthN() { return ({ balance: 6, '5': 5, '10': 10, '15': 15, all: 9999 })[EXT.contextDepth] || 6; }
-function getConvo() {
-    const ctx = getCtx();
-    if (!ctx || !Array.isArray(ctx.chat)) return '(대화 없음)';
-    const msgs = ctx.chat.filter(m => m && m.mes);
-    const n = depthN();
-    const slice = n >= 9999 ? msgs : msgs.slice(-n);
-    const out = slice.map(m => `${m.is_user ? '유저' : (m.name || '상대')}: ${stripTags(m.mes)}`).join('\n');
-    return (out || '(대화 없음)').slice(-6000);
-}
-function recentFoesHint() {
-    const seen = [];
-    for (const e of (STATE.encounters || [])) {
-        if (e.foe && !seen.includes(e.foe)) seen.push(e.foe);
-        if (seen.length >= 6) break;
-    }
-    if (!seen.length) return '';
-    return `\n[최근 등장한 대상] ${seen.join(', ')}\n이것들과 같은 동물/종류를 반복하지 마라. 매번 다른 종류·다른 분위기의 새로운 대상으로 다양하게 내라(직전과 같은 동물 금지).`;
-}
-function knownNpcsHint() {
-    const arr = Object.values(STATE.npcs);
-    if (!arr.length) return '';
-    const names = arr.map(n => n.nickname ? `${n.name}(${n.nickname})` : n.name).slice(0, 12);
-    return `\n[이미 만난 대상들] ${names.join(', ')}\n가끔(낮은 확률) 이 중 하나가 다시 나타나는 "재조우"로 만들어도 좋다. 그 경우 foe를 위 이름과 정확히 똑같이 써라.`;
-}
-function resolveProfile() {
-    const id = EXT.connectionProfile;
-    if (!id) return null;
-    const p = getProfiles().find(x => (x.id || x.name) === id);
-    return p ? id : '__missing__';
-}
-function extractText(res) {
-    if (!res) return '';
-    if (typeof res === 'string') return res.trim();
-    const c = res.content
-        || (res.choices && res.choices[0] && (res.choices[0].message ? res.choices[0].message.content : res.choices[0].text))
-        || res.text || res.message || '';
-    return String(c).trim();
-}
-function parseLLMJson(text) {
-    let t = String(text).replace(/```json/gi, '').replace(/```/g, '').trim();
-    const s = t.indexOf('{'), e = t.lastIndexOf('}');
-    if (s >= 0 && e > s) t = t.slice(s, e + 1);
-    return JSON.parse(t);
-}
-async function llmGenerate(prompt, maxTokens) {
-    blLog('gen', (prompt || '').replace(/\s+/g, ' ').slice(0, 26));
-    const ctx = getCtx();
-    const cmrs = ctx && ctx.ConnectionManagerRequestService;
-    const profileId = resolveProfile();
-    if (profileId === '__missing__') throw { code: 'missing' };
-    if (profileId && cmrs && typeof cmrs.sendRequest === 'function') {
-        const res = await cmrs.sendRequest(profileId, prompt, maxTokens || 4096);
-        const text = extractText(res);
-        if (!text) throw { code: 'empty' };
-        return text;
-    }
-    if (ctx && typeof ctx.generateQuietPrompt === 'function') {
-        const text = await ctx.generateQuietPrompt(prompt, false, false);
-        if (!text) throw { code: 'empty' };
-        return String(text).trim();
-    }
-    throw { code: 'nogen' };
-}
-// 그룹챗이면 멤버 캐릭터 이름들, 1:1이면 [name2] 하나. 빈 배열 가능.
-function groupMemberNames() {
-    const ctx = getCtx(); if (!ctx) return [];
-    try {
-        if (ctx.groupId && Array.isArray(ctx.groups) && Array.isArray(ctx.characters)) {
-            const g = ctx.groups.find(x => x.id == ctx.groupId);
-            if (g && Array.isArray(g.members) && g.members.length) {
-                const names = g.members.map(av => {
-                    const c = ctx.characters.find(ch => ch.avatar === av);
-                    return c ? c.name : null;
-                }).filter(Boolean);
-                if (names.length) return names;
-            }
+        const cm = extension_settings.connectionManager;
+        if (cm && Array.isArray(cm.profiles)) {
+            return cm.profiles.map(p => ({ id: p.id, name: p.name }));
         }
     } catch (e) { /* noop */ }
-    return ctx.name2 ? [ctx.name2] : [];
+    return [];
 }
-function getScene() {
-    const ctx = getCtx(); if (!ctx) return '';
-    const sub = s => stripTags(String(s || '')).replace(/\{\{user\}\}/gi, ctx.name1 || '유저').replace(/\{\{char\}\}/gi, ctx.name2 || '상대');
-    const bits = [];
+
+// ConnectionManagerRequestService를 여러 경로에서 찾는다 (ST 버전마다 노출 위치가 다름)
+function getCMRS() {
     try {
-        // 그룹챗이면 멤버 전원, 1:1이면 단일 캐릭터
-        const members = groupMemberNames();
-        if (members.length > 1) {
-            bits.push(`등장 캐릭터(그룹): ${members.join(', ')}`);
-        } else if (ctx.name2) {
-            bits.push(`상대 캐릭터: ${ctx.name2}`);
-        }
-        const char = ctx.characters && ctx.characters[ctx.characterId];
-        if (char) {
-            const d = char.data || {};
-            const scen = sub(char.scenario || d.scenario).trim();
-            const desc = sub(char.description || d.description).trim();
-            const pers = sub(char.personality || d.personality).trim();
-            const src = scen || desc;
-            if (src) bits.push(`설정: ${src.slice(0, 300)}`);
-            if (pers) bits.push(`${ctx.name2 || '상대'} 성격: ${pers.slice(0, 160)}`);
-        }
-        if (ctx.name1) bits.push(`유저(나): ${ctx.name1}`);
-        // 유저 페르소나 설명(있으면 말투/성격 단서로)
-        const persona = sub((ctx.power_user && ctx.power_user.persona_description) || ctx.personaDescription || '').trim();
-        if (persona) bits.push(`유저 페르소나: ${persona.slice(0, 160)}`);
-    } catch (e) {}
-    bits.push('말투/문체: 위 캐릭터와 유저의 성격, 그리고 최근 대화의 어조·말투·분위기를 그대로 반영해라(진지하면 진지하게, 가벼우면 가볍게). 비스트로그 특유의 데드팬은 유지하되 장면의 톤을 거스르지 마라.');
-    return `[장면/세계 정보]\n${bits.join('\n')}\n`;
-}
-const RULES_FIT = '반드시 현재 장면(장소/시대/세계관/등장인물/분위기/소품)에 어울려야 한다. 장면의 구체적 단서(나온 장소·물건·인물·사건)를 적극 활용해 거기서 끌어내라. 맥락이 빈약하더라도 아무 동물이나(특히 다람쥐·비둘기) 기계적으로 반복하지 마라 — 장면이 판타지면 판타지답게, 현대면 현대답게, SF면 SF답게. 맥락에 없는 뜬금없는 대상(예: 한국 회사원, 김대리)을 만들지 마라. 무겁지 않은 일상 + 데드팬 코미디. 한국어로만. JSON만, 설명/코드펜스 금지.';
-function buildAppearPrompt() {
-    return `너는 RP 채팅에 어울리는 "조우 이벤트"를 만든다. 이 장면에 자연스럽게 나타날 법한 대상(인물/생물/사물) 하나.
-${RULES_FIT}
-선택지 3개(서로 다른 대응), 각 kind는 help/cooperate/activity/loot/interact/flee/attack 중 하나. attack은 괜히 시비 거는 선택.
-foeType은 대상이 사람이면 "person", 동물/생물이면 "creature", 물건/사물이면 "object".
-place=이 조우가 일어나는 장소를 짧게(예: 중앙공원 / 강의실 / 선술집 / 골목). env=그 장소 환경 태그 2~4개(예: ["야외","공원","나무"] 또는 ["실내","학교"]). 이건 나중에 "비슷한 장소에서만 다시 떠오르게" 쓰는 값이니 정확히.
-형식: {"category":"npc","emoji":"이모지 하나","title":"~가 나타났다/다가온다/보인다 류 한 문장","foe":"대상 이름(없으면 null)","foeType":"person|creature|object","place":"장소","env":["태그",...],"choices":[{"label":"...","kind":"..."},{"label":"...","kind":"..."},{"label":"...","kind":"flee"}]}
-${knownNpcsHint()}${recentFoesHint()}
-${getScene()}[대화 맥락]
-${getConvo()}`;
-}
-function buildSituationPrompt() {
-    return `너는 RP 채팅에 어울리는 "상황 이벤트"(환경/사건)를 만든다. 인물이 아니라 장면에 닥치는 일(날씨·소음·물건·돌발사건 등).
-${RULES_FIT}
-선택지는 3개. 각 선택지의 kind는 다음 중에서: activity(몸으로 부딪힘)·interact(살펴보거나 건드림)·loot(줍거나 챙김)·flee(피하거나 무시). 마지막 선택지는 반드시 flee.
-반드시 아래 JSON 형식 하나만 출력. 코드펜스(\`\`\`)나 설명 금지.
-형식: {"category":"situation","emoji":"이모지 하나","title":"무슨 일이 벌어졌는지 한 문장","desc":"짧은 묘사 한 줄","choices":[{"label":"...","kind":"activity"},{"label":"...","kind":"interact"},{"label":"...","kind":"flee"}]}
-
-${getScene()}[대화 맥락]
-${getConvo()}`;
-}
-function buildResolvePrompt(item, choiceLabel, kind, history, backfire) {
-    const hist = (history && history.length)
-        ? `이 조우는 여러 박자로 이어졌다:\n${history.map((h, i) => `${i + 1}. ${h.title} → 선택: ${h.choice}`).join('\n')}\n그리고 마지막 선택: ${choiceLabel}\n결과/후일담은 이 전체 흐름을 반영해라.\n`
-        : '';
-    let relCtx = '';
-    const n = item.foe ? STATE.npcs[item.foe] : null;
-    if (n && n.metCount > 0) {
-        const d = daysSince(n.lastMetTs);
-        relCtx = `[이 대상과의 기존 관계] ${n.nickname || n.name} · 관계: ${n.tier} · ${n.metCount}번째 만남${n.lastPlace ? ` · 주 출몰: ${n.lastPlace}` : ''}${n.state && n.state !== '평범함' ? ` · 최근 상태: ${n.state}` : ''}${n.memory ? ` · 기억: ${stripTags(n.memory)}` : ''}.
-이 관계 단계에 맞게 반응해라 — 차가우면(경계/불신/피함) 상대가 거리를 두거나 경계/회피하고(예: 현금통을 끌어당김, 손을 피해 담장 위로 올라감), 따뜻하면(익숙함/단골) 반갑게 군다. inner.foe와 after에 그 온도가 묻어나야 한다.\n`;
-    }
-    const backfireRule = backfire
-        ? `\n★중요(이번 결과는 "예상 못한 역효과"다): 선택 자체는 멀쩡했는데 운 나쁘게/엉뚱하게 일이 꼬여 나쁜 결과가 났다. 선의가 오해를 부르거나, 도우려다 사고가 나거나, 좋게 끝날 줄 알았는데 뒤통수 맞는 식. 억지스럽지 않게, 그 장면에서 "아 그럴 수도 있겠다" 싶은 자연스러운 불운으로. 데드팬하게. 반드시 exp는 음수(-1~-3), rep도 0 이하로 매겨라. result/summary에도 일이 틀어졌음이 드러나게.\n`
-        : '';
-    return `RP 이벤트의 "결과"와 "뒷소문"을 만든다.
-이벤트: ${item.title} / 선택: ${choiceLabel} (kind:${kind})
-${relCtx}${hist}${backfireRule}규칙: 데드팬 코미디, 한국어. exp=경험치 정수(좋은/생산적 선택은 +2~8, 시비·민폐 등 나쁜 선택은 -1~-3). rep=평판 변화 정수(좋은 행동 +, 괜히 시비/민폐 -). affDelta=관계 변화 정수(없으면 0).
-inner.foe=상대/주변의 진짜 속내(수치와 어긋나도 됨, 그게 재미). inner.user=유저 속내 추측("~했을지도/~었을 것이다" 식 단정 금지).
-after=가끔만(대개 null) 며칠 뒤 오해/뒷이야기 한 줄.
-drop=이 조우에서 손에 들어온 물건. 상황에 맞게 자주 챙겨줘라(정말 아무것도 없을 때만 null). {name,emoji,price:0,bond:0~3} — bond는 {{char}}/{{user}}와의 연관 깊이
-  - **물건은 지금 이 RP의 맥락에서 끌어내라.** 대화·장면에 실제로 등장했던 소품이면 가장 좋고(그 칼, 그 편지, 그가 건넨 꽃 등), 캐시트·로어북에 나온 물건도 좋다. 없으면 이 세계관·인물·관계에 어울리는 의미 있는 물건을 새로 지어라. 아무 데서나 통할 잡템(녹슨 숟가락 류)은 맥락이 정말 없을 때만.
-  - name은 그 물건의 사연이 살짝 드러나게(예: "그가 쥐여준 마른 들꽃", "이름이 새겨진 낡은 손수건"). 길지 않게.
-  - lore = 이 물건에 담긴 의미/사연 한 줄(bond가 1 이상이면 꼭, RP 맥락에서 길어올린 것). bond 0이면 빈 문자열이나 null.
-  - bond = 이 물건이 RP 주인공({{char}}) 또는 유저({{user}})와 얼마나 깊이 얽혔나: 0=무관(길에서 주운 잡템), 1=조금(그 장소·상황과 엮임), 2=꽤({{char}}나 {{user}}가 건네거나 관련된 물건), 3=각별({{char}}나 {{user}}의 소중한 물건·추억·선물·둘 사이의 인연이 담긴 것). 캐시트·로어북·유저 페르소나·대화에서 {{char}}나 {{user}}에게 의미 있는 것일수록 높게. 관련 깊을수록 귀한 물건이 된다.
-대상(인물/생물)이 있으면: npcMemory=그 대상에 대해 오래 남을 한 줄 기억(없으면 null), npcState=그 대상의 현재 상태 짧게(없으면 null).
-summary=이 조우 전체를 짧게 요약한 한 줄(대상+무슨 일이 있었는지, 일지 제목용. 예: "이구아나를 쓰다듬으려다 경계당함", "붕어빵 아저씨에게 세금 얘기하다 미움삼"). 18자 안팎으로 짧게. JSON만.
-형식: {"result":"짧은 결과 라벨","summary":"한 줄 요약","exp":정수,"rep":정수,"affDelta":정수,"drop":{"name":"...","emoji":"...","price":0,"bond":0~3,"lore":"사연 한 줄 또는 null"}또는null,"inner":{"foe":"...","user":"..."},"after":"..."또는null,"npcMemory":"..."또는null,"npcState":"..."또는null}
-
-${getScene()}[대화 맥락]
-${getConvo()}`;
-}
-function buildChainPrompt(item, history, choice, stage, max) {
-    const hist = history.map((h, i) => `${i + 1}. ${h.title} → 선택: ${h.choice}`).join('\n');
-    return `RP "조우"가 이어지는 중이다 (${stage}/${max}단계). 방금 선택을 받아 장면이 한 박자 전개된다 — 아직 결말이 아니다(결과/수치 금지).
-대상: ${item.foe || item.title}
-지금까지:
-${hist}
-이번 선택: ${choice.label} (kind:${choice.kind})
-규칙: 데드팬 코미디, 한국어. 직전 선택의 자연스러운 반응으로 상황이 한 단계 더 꼬이거나 풀린다. 새 선택지 3개(서로 다른 대응, 마지막은 빠지기 kind:flee). ${RULES_FIT}
-형식: {"beat":"전개 한두 문장","choices":[{"label":"...","kind":"..."},{"label":"...","kind":"..."},{"label":"...","kind":"flee"}]}
-
-${getScene()}[대화 맥락]
-${getConvo()}`;
-}
-function normalizeBeat(o) {
-    o = o || {};
-    let ch = Array.isArray(o.choices) ? o.choices.slice(0, 4) : [];
-    ch = ch.filter(c => c && c.label).map(c => ({ label: String(c.label), kind: VALID_KINDS.includes(c.kind) ? c.kind : 'interact' }));
-    if (!ch.length) ch = [{ label: '계속 지켜본다', kind: 'interact' }, { label: '물러난다', kind: 'flee' }];
-    return { beat: subMacros(String(o.beat || '상황이 한 박자 더 이어진다.')), choices: ch };
-}
-function normalizeEvent(o, cat) {
-    o = o || {};
-    let choices = Array.isArray(o.choices) ? o.choices.slice(0, 4) : [];
-    choices = choices.filter(c => c && c.label).map(c => ({ label: subMacros(String(c.label)), kind: VALID_KINDS.includes(c.kind) ? c.kind : 'interact' }));
-    if (!choices.length) choices = [{ label: '대응한다', kind: 'interact' }, { label: '지나친다', kind: 'flee' }];
-    return {
-        category: o.category === 'situation' ? 'situation' : cat,
-        emoji: String(o.emoji || (cat === 'situation' ? '🌦️' : '❓')).slice(0, 4),
-        title: subMacros(String(o.title || (cat === 'situation' ? '무언가 일어났다' : '무언가 나타났다'))),
-        foe: (o.foe && o.foe !== 'null') ? subMacros(String(o.foe)) : null,
-        foeType: ['person', 'creature', 'object'].includes(o.foeType) ? o.foeType : 'creature',
-        desc: o.desc ? subMacros(String(o.desc)) : '',
-        place: (o.place && o.place !== 'null') ? subMacros(String(o.place)).slice(0, 24) : '',
-        env: Array.isArray(o.env) ? o.env.map(s => String(s).replace(/[#\s]/g, '').slice(0, 12)).filter(Boolean).slice(0, 5) : [],
-        choices,
-    };
-}
-function normalizeOutcome(o, kind) {
-    o = o || {};
-    // 경험치는 LLM 즉흥값이 아니라 선택(kind)별 고정값으로 — 일관된 밸런스
-    const EXP_BY_KIND = { cooperate: 8, help: 6, activity: 4, loot: 4, interact: 2, flee: 2, attack: -3 };
-    let exp = (kind in EXP_BY_KIND) ? EXP_BY_KIND[kind] : 4;
-    if (kind === 'attack') exp = -3;   // 나쁜 선택(시비)은 항상 경험치 손해
-    // 드랍 결정: LLM이 준 게 있으면 그걸, 없으면 — loot(주움)은 항상, 그 외엔 확률로 보완
-    let drop = (o.drop && o.drop.name)
-        ? { name: subMacros(String(o.drop.name)).slice(0, 40), emoji: String(o.drop.emoji || '📦'), price: o.drop.price || 0, bond: Math.max(0, Math.min(3, parseInt(o.drop.bond, 10) || 0)), lore: (o.drop.lore && o.drop.lore !== 'null') ? subMacros(String(o.drop.lore)).slice(0, 120) : '' }
-        : null;
-    if (!drop && kind !== 'attack' && kind !== 'flee') {
-        const chance = (kind === 'loot') ? 1 : 0.25;   // 주움은 100%, 그 외 25%
-        if (Math.random() < chance) drop = Object.assign({ bond: 0, lore: '' }, pick(FALLBACK_DROPS));   // 폴백 잡템은 관련 없음
-    }
-    return {
-        result: subMacros(String(o.result || '결과')),
-        summary: (o.summary && o.summary !== 'null') ? subMacros(String(o.summary)).slice(0, 40) : null,
-        exp,
-        rep: Number.isFinite(o.rep) ? o.rep : 0,
-        affDelta: Number.isFinite(o.affDelta) ? o.affDelta : affinityDelta(kind),
-        drop,
-        inner: { foe: subMacros(String((o.inner && o.inner.foe) || '별일 없었던 것 같다.')), user: subMacros(String((o.inner && o.inner.user) || '당신도 잘 모르겠을 것이다.')) },
-        after: (o.after && o.after !== 'null') ? subMacros(String(o.after)) : null,
-        npcMemory: (o.npcMemory && o.npcMemory !== 'null') ? subMacros(String(o.npcMemory)) : null,
-        npcState: (o.npcState && o.npcState !== 'null') ? subMacros(String(o.npcState)) : null,
-    };
-}
-function handleLlmError(err) {
-    const code = err && err.code;
-    LAST_ERROR = (err && (err.stack || err.message)) || (code ? 'code:' + code : String(err));
-    blLog('LLM_ERR', code || (err && err.message) || err);
-    if (code === 'nogen') return false;
-    if (code === 'missing') showAlarm('엇... 고른 연결 프로필이 사라졌어요;;', '설정에서 프로필을 다시 골라주세요.');
-    else if (code === 'empty') showAlarm('어어... 응답이 텅 비어서 왔어요;;', '모델이 잠깐 딴짓하나 봐요. 조금 뒤에 다시 눌러주세요.');
-    else showAlarm('엇... 연결이 안 되네요;;', '고른 프로필 연결을 확인해 주세요. (그때까진 못 움직여요)');
-    return true;
+        const ctx = getContext();
+        return ctx?.ConnectionManagerRequestService
+            || ctx?.connectionManagerRequestService
+            || (typeof window !== 'undefined' && window.ConnectionManagerRequestService)
+            || null;
+    } catch (e) { return null; }
 }
 
-function applyOutcome(item, choiceLabel, outcome, kind) {
-    const rawExp = outcome.exp || 0;
-    const backfireFlag = outcome._backfire === true;
-    const eff = gainXp(rawExp);   // 상태 나쁘면 양수 XP 효율↓ (음수 벌점은 그대로)
-    STATE.rep = (STATE.rep || 0) + (outcome.rep || 0);
-    const rarity = outcome.drop ? rollDropRarity(outcome.drop.bond) : 'common';
-    const itemType = outcome.drop ? rollItemType(rarity) : null;
-    const affDelta = item.foe ? (Number.isFinite(outcome.affDelta) ? outcome.affDelta : affinityDelta(kind)) : 0;
-    const shownExp = rawExp > 0 ? Math.max(1, Math.round(rawExp * eff)) : rawExp;   // 실제 반영된 양
-    const entry = {
-        id: cryptoId(), no: STATE.encounters.length + 1, time: nowHHMM(), category: item.category || 'npc',
-        emoji: item.emoji, title: item.title, desc: `${choiceLabel} — ${outcome.result}`, summary: outcome.summary || null,
-        result: outcome.result, exp: shownExp, rep: outcome.rep || 0, rarity, affDelta, foe: item.foe || null, backfire: outcome._backfire === true,
-        drop: outcome.drop ? outcome.drop.name : null, dropBait: itemType === 'bait',
-        inner: outcome.inner, after: (outcome.after || rollAfter()), _noNews: pick(NO_NEWS), revealed: false, open: false,
-    };
-    STATE.encounters.unshift(entry);
-    if (STATE.encounters.length > 150) STATE.encounters.length = 150;
-    if (outcome.drop) { STATE.items.unshift(Object.assign({ id: cryptoId(), rarity, itemType }, outcome.drop)); if (STATE.items.length > 80) STATE.items.length = 80; }
-
-    if (item.foe) {
-        const isNew = !STATE.npcs[item.foe];
-        const reg = STATE.npcs[item.foe] || { name: item.foe, nickname: '', emoji: item.emoji, dexType: 'creature', affinity: 0, metCount: 0, firstMet: nowDate(), lastMet: nowDate(), tier: '낯섦', state: '평범함', memory: '', log: [], terjut: false, firstPlace: '', lastPlace: '', env: [] };
-        const before = reg.tier;
-        const disp = reg.nickname || reg.name;
-        reg.metCount += 1; reg.affinity += affDelta; reg.lastMet = nowDate(); reg.lastMetTs = Date.now();
-        if (isNew) { reg.firstMet = nowDate(); reg.firstMetTs = Date.now(); }
-        if (item.foeType) reg.dexType = item.foeType;
-        if (item.place) { if (!reg.firstPlace) reg.firstPlace = item.place; reg.lastPlace = item.place; }
-        if (Array.isArray(item.env) && item.env.length) reg.env = Array.from(new Set([...(reg.env || []), ...item.env])).slice(0, 8);
-        reg.tier = relTier(reg.affinity); reg.terjut = reg.metCount >= 5;
-        const stateChanged = outcome.npcState && outcome.npcState !== reg.state;
-        if (outcome.npcState) reg.state = outcome.npcState;
-        if (outcome.npcMemory) reg.memory = outcome.npcMemory;
-        reg.log = reg.log || [];
-        const note = isNew ? '처음 발견' : (outcome.npcMemory || (stateChanged ? `상태: ${outcome.npcState}` : (choiceLabel + ' — ' + outcome.result)));
-        reg.log.unshift({ date: nowDate(), note: String(note).slice(0, 70) });
-        if (reg.log.length > 14) reg.log.length = 14;
-        STATE.npcs[item.foe] = reg;
-        STATE.currentNpc = item.foe;
-        if (reg.tier !== before) flash(`${reg.emoji} ${disp} — '${reg.tier}'!`);
-        else if (reg.terjut && reg.metCount === 5) flash(`${reg.emoji} ${disp} 터줏대감 등극!`);
-        else if (!isNew) flash(`${reg.emoji} ${disp} 재조우!`);
-    }
-    if (item.category === 'situation') STATE.currentSituation = { emoji: item.emoji, title: item.title };
-
-    // ── 스탯 변화 (조우) ──
-    if (outcome.rep > 0) STATE.mood = clamp0100(STATE.mood + 8);          // 좋은 조우 → 기분↑
-    else if (outcome.rep < 0) STATE.mood = clamp0100(STATE.mood - 8);     // 나쁜 조우 → 기분↓
-    if (kind === 'attack') { STATE.hp = clamp0100(STATE.hp - 10); STATE.mood = clamp0100(STATE.mood - 8); }  // 싸움 → 체력·기분↓
-    else if (kind !== 'flee' && Math.random() < 0.4) {                    // 회피·시비 외 활동은 가끔 기운 소모
-        STATE.hp = clamp0100(STATE.hp - (2 + Math.floor(Math.random() * 5)));   // 랜덤 -2~-6
-    }
-    if (backfireFlag) STATE.hp = clamp0100(STATE.hp - (3 + Math.floor(Math.random() * 4)));   // 예상 못한 사고 → 체력 추가 -3~-6
-    if (STATE.encounters.length % 3 === 0) STATE.hunger = clamp0100(STATE.hunger - 8);                     // 활동하면 배고파짐
-    if (STATE.hunger <= 0) { STATE.mood = clamp0100(STATE.mood - 5); STATE.hp = clamp0100(STATE.hp - 5); }   // 굶으면 방치 페널티
-
-    levelCheck();
-    if (rawExp > 0 && eff < 1) flash(`💤 컨디션이 나빠 경험치 ${Math.round(eff * 100)}%만…`);   // 방치하면 덜 큼
-    saveState(STATE);
-    renderAll();
-    refreshMemory();
-    showResultPopup(entry);
-}
-function clamp0100(n) { return Math.max(0, Math.min(100, Math.round(n))); }
-function clamp05(n) { return clamp0100(n); }  // 하위호환 별칭
-// 상태(기분·배고픔·체력 평균)에 따른 경험치 효율 배율 — 잘 돌봐야 잘 큰다 (양수 XP에만 적용)
-function xpEfficiency() {
-    const avg = ((STATE.mood || 0) + (STATE.hunger || 0) + (STATE.hp || 0)) / 3;
-    if (avg >= 70) return 1.0;     // 잘 돌봄 → 풀로
-    if (avg >= 40) return 0.7;     // 보통 → 70%
-    if (avg >= 20) return 0.4;     // 방치 시작 → 40%
-    return 0.1;                    // 막 굶김 → 10% (그래도 0은 아님)
-}
-// 경험치 효율을 반영해 XP 지급 (음수=벌점은 그대로, 양수=보상만 배율)
-function gainXp(amount) {
-    if (amount > 0) {
-        const eff = xpEfficiency();
-        STATE.xp += Math.max(1, Math.round(amount * eff));   // 효율 낮아도 최소 1은 줌
-        return eff;
-    }
-    STATE.xp += amount;   // 음수(나쁜 선택 벌점)는 그대로
-    return 1;
-}
-function levelNeed(lv) { return Math.round(60 + lv * lv * 15); }   // 제곱 곡선(약 20% 상향): 렙업 살짝 천천히
-function levelCheck() {
-    let need = levelNeed(STATE.level);
-    while (STATE.xp >= need) { STATE.xp -= need; STATE.level += 1; flash(`⭐ 레벨업! Lv.${STATE.level}`); need = levelNeed(STATE.level); }
-    while (STATE.xp < 0 && STATE.level > 1) { STATE.level -= 1; STATE.xp += levelNeed(STATE.level); flash(`💧 레벨 다운… Lv.${STATE.level}`); }
-    if (STATE.xp < 0) STATE.xp = 0;   // Lv.1 바닥
+// cmrs.sendRequest 반환값에서 본문 텍스트를 안전 추출 (버전별 형태 차이 대응)
+function extractCmrsText(result) {
+    if (result == null) return '';
+    if (typeof result === 'string') return result;
+    return (
+        result.content
+        || result.text
+        || result.message?.content
+        || result.choices?.[0]?.message?.content
+        || result.choices?.[0]?.text
+        || result.response
+        || result.data?.content
+        || ''
+    ) || '';
 }
 
-// ── 정리/삭제 ──
-function deleteEncounter(id) { STATE.encounters = STATE.encounters.filter(x => x.id !== id); saveState(STATE); renderFull(); refreshMemory(); }
-function clearEncounters() { showConfirm('모험일지 비우기', '기록을 전부 지울까요? 되돌릴 수 없어요.', () => { STATE.encounters = []; saveState(STATE); renderAll(); refreshMemory(); }); }
-function deleteItem(id) { STATE.items = STATE.items.filter(x => x.id !== id); saveState(STATE); renderAll(); }
-function clearItems() { showConfirm('가방 비우기', '소지품을 전부 버릴까요?', () => { STATE.items = []; saveState(STATE); renderAll(); }); }
-function deleteNpc(name) {
-    const n = STATE.npcs[name]; if (!n) return;
-    showConfirm('인물 삭제', `'${n.nickname || n.name}'을(를) 도감에서 지울까요? 되돌릴 수 없어요.`, () => {
-        delete STATE.npcs[name];
-        if (STATE.currentNpc === name) STATE.currentNpc = null;
-        saveState(STATE); renderAll();
-    });
+function safeKeys(o) {
+    try { return (o && typeof o === 'object') ? Object.keys(o).join(',') : ('type:' + typeof o); }
+    catch (e) { return '?'; }
 }
-function clearNpcs() { showConfirm('도감 전체 삭제', '도감을 통째로 비울까요? 되돌릴 수 없어요.', () => { STATE.npcs = {}; STATE.currentNpc = null; saveState(STATE); renderAll(); }); }
 
-// ── 앰비언트 기억 주입 (setExtensionPrompt) ──
-// 보이는 메시지로 사건을 쑤셔넣지 않는다. 게다가 "현재 장면의 장소"와 맞는 주민만 떠올리게 한다.
-const MEM_KEY = 'beastlog_traces';
-function currentSceneText() {
-    const ctx = getCtx();
-    if (!ctx || !Array.isArray(ctx.chat)) return '';
-    return ctx.chat.filter(m => m && m.mes).slice(-6).map(m => stripTags(m.mes)).join(' ').toLowerCase();
-}
-function sceneMatch(n, scene) {
-    if (!scene) return false;
-    const terms = [n.lastPlace, n.firstPlace, ...(n.env || [])].filter(t => t && String(t).length >= 2);
-    return terms.some(t => scene.includes(String(t).toLowerCase()));
-}
-function daysSince(ts) { return ts ? Math.floor((Date.now() - ts) / 86400000) : null; }
-function isPinned(key) { return (STATE.pins || []).includes(key); }
-function pinBtn(key) {
-    const off = STATE.settings.injectDefault ? '' : ' disabled';
-    return `<button class="bl-pin${isPinned(key) ? ' on' : ''}" data-pin="${escapeHtml(key)}"${off} title="${STATE.settings.injectDefault ? '기억에 주입/해제' : '기억 흘리기를 켜야 활성화'}">📌</button>`;
-}
-function pinMemory(key) {
-    if (!STATE.settings.injectDefault) { flash('세팅에서 🌱 기억 흘리기를 먼저 켜주세요'); return; }
-    STATE.pins = STATE.pins || [];
-    const i = STATE.pins.indexOf(key);
-    if (i >= 0) STATE.pins.splice(i, 1); else STATE.pins.push(key);
-    saveState(STATE); renderAll(); refreshMemory();
-    flash(i >= 0 ? '기억에서 내림' : '📌 기억에 고정됨');
-}
-function pinnedLines() {
-    const out = [];
-    for (const key of (STATE.pins || [])) {
-        const ci = key.indexOf(':'); const t = key.slice(0, ci); const id = key.slice(ci + 1);
-        if (t === 'npc') {
-            const n = STATE.npcs[id]; if (!n) continue;
-            const d = daysSince(n.lastMetTs);
-            out.push(`· ${n.emoji || ''} ${n.nickname || n.name} (${n.tier})${n.lastPlace ? ' · ' + n.lastPlace : ''}${n.state && n.state !== '평범함' ? ' · ' + n.state : ''}${n.memory ? ' · ' + stripTags(n.memory) : ''}${d != null && d >= 1 ? ` · ${d}일 전` : ''}`);
-        } else if (t === 'enc') {
-            const e = (STATE.encounters || []).find(x => x.id === id); if (!e) continue;
-            out.push(`· ${e.emoji || ''} ${stripTags(e.after || e.desc || e.title)}`);
-        } else if (t === 'item') {
-            const it = (STATE.items || []).find(x => x.id === id); if (!it) continue;
-            out.push(`· ${it.emoji || '📦'} ${it.name}`);
+// 격리 호출을 여러 방식으로 순차 시도 (ST 버전/프로바이더, 특히 Vertex AI 호환).
+// 하나라도 본문이 나오면 그걸 반환. 전부 실패하면 빈 문자열 + 각 방식 에러를 로그에 남긴다.
+async function isolatedGenerate(cmrs, profileId, fullPrompt, maxTokens, signal) {
+    const messages = [{ role: 'user', content: fullPrompt }];
+    const attempts = [
+        ['배열+signal', () => cmrs.sendRequest(profileId, messages, maxTokens, { signal })],
+        ['배열',       () => cmrs.sendRequest(profileId, messages, maxTokens)],
+        ['문자열',     () => cmrs.sendRequest(profileId, fullPrompt, maxTokens)],
+    ];
+    for (const [label, fn] of attempts) {
+        if (signal?.aborted) { const e = new Error('aborted'); e.name = 'AbortError'; throw e; }
+        try {
+            const result = await fn();
+            const text = extractCmrsText(result);
+            if (text) { hotmicDebug(`✅ 격리 호출 성공 [${label}] — 메인 연결 미사용`); return text; }
+            hotmicDebug(`격리 [${label}] 응답 비어있음. result 키=[${safeKeys(result)}]`);
+        } catch (e) {
+            if (signal?.aborted || e?.name === 'AbortError') throw e;
+            hotmicDebug(`격리 [${label}] 실패: ${e?.message || e}`);
         }
     }
-    return out;
-}
-function buildMemoryBlock() {
-    const scene = currentSceneText();
-    const auto = [];
-    const pinnedKeys = new Set((STATE.pins || []).filter(k => k.startsWith('npc:')).map(k => k.slice(4)));
-    for (const n of Object.values(STATE.npcs || {})) {
-        if (pinnedKeys.has(n.name)) continue;            // 고정된 건 아래 핀 섹션에서
-        if (!sceneMatch(n, scene)) continue;             // 장소 안 맞으면 제외
-        const name = n.nickname ? `${n.name}(별명 ${n.nickname})` : n.name;
-        const place = n.lastPlace || n.firstPlace || '';
-        const bits = [`${n.emoji || ''} ${name} — 관계: ${n.tier}`];
-        if (place) bits.push(`주로 ${place}에서 마주침`);
-        if (n.state && n.state !== '평범함') bits.push(`최근 상태: ${n.state}`);
-        if (n.memory) bits.push(`기억: ${stripTags(n.memory)}`);
-        const d = daysSince(n.lastMetTs);
-        if (d != null && d >= 1) bits.push(`마지막으로 본 지 ${d}일`);
-        auto.push('· ' + bits.join(' / '));
-        if (auto.length >= 4) break;
-    }
-    const pins = pinnedLines();
-    if (!auto.length && !pins.length) return '';
-    let s = '';
-    if (auto.length) {
-        s += `[비스트로그 — 지금 이 장소에서 떠오를 수 있는 것들]
-※ 현재 장면의 환경과 맞아떨어지는, 이미 아는 대상들이다. 자연스러울 때 {{char}}가 먼저 알아보거나 떠올려도 좋다 ("저 다람쥐, 전에 본 놈 아니냐") — 관계 단계에 맞는 반응으로. 오랜만의 재회라면 그 감회(반가움/떨떠름함/경계 등)가 슬쩍 묻어나도 좋다.
-※ 이건 장면을 끌고 가라는 지시가 아니다. 흐름을 해치지 않는 선에서 양념처럼 슬쩍 언급될 뿐. 강제 등장·장면 가로채기 절대 금지.
-${auto.join('\n')}`;
-    }
-    if (pins.length) {
-        if (s) s += '\n\n';
-        s += `[비스트로그 — 특별히 기억하는 것들]
-※ 유저가 직접 고정해 둔 기억이다. 장소와 무관하게, 흐름상 자연스러울 때 {{char}}가 떠올리거나 반영해도 좋다. 역시 강제하지 말 것.
-${pins.join('\n')}`;
-    }
-    return s;
-}
-function refreshMemory() {
-    const ctx = getCtx();
-    if (!ctx || typeof ctx.setExtensionPrompt !== 'function') return;
-    const block = (STATE.settings.injectDefault) ? buildMemoryBlock() : '';
-    try { ctx.setExtensionPrompt(MEM_KEY, block, 1, 4); } catch (e) { blDebug('기억 주입 실패', e); }
-}
-function injectBait() {
-    const bait = STATE.items.find(i => i.itemType === 'bait') || STATE.items[0];
-    if (!bait) { flash('주울 게 없다'); return; }
-    flash(`🎣 ${bait.name} 만지작…`);
-}
-
-// ── 동기화/헬퍼 ──
-function setInjectDefault(v) { STATE.settings.injectDefault = v; saveState(STATE); renderAll(); refreshMemory(); syncControls(); }
-function setAutoDetect(v) { EXT.autoDetect = v; saveExt(); syncControls(); }
-function setChain(v) { EXT.chainOn = v; saveExt(); syncControls(); }
-function setSpriteMono(v) { EXT.spriteMono = v; saveExt(); renderAll(); syncControls(); }
-const BL_THEMES = [{ k: 'pudding', label: '🍮 푸딩' }, { k: 'mint', label: '🍵 말차' }, { k: 'strawberry', label: '🌸 벚꽃' }, { k: 'dawn', label: '🌌 새벽하늘' }];
-function applyTheme() {
-    const t = (EXT && EXT.theme) || 'pudding';
-    const root = document.documentElement;
-    if (!root) return;
-    if (t === 'pudding') root.removeAttribute('data-bl-theme');
-    else root.setAttribute('data-bl-theme', t);
-}
-function setTheme(v) { EXT.theme = v; saveExt(); applyTheme(); renderAll(); syncControls(); }
-function syncControls() {
-    if (consoleEl) { const sw = consoleEl.querySelector('.bl-sw'); if (sw) sw.dataset.on = STATE.settings.injectDefault ? 'true' : 'false'; }
-    if (fullEl) {
-        const fi = fullEl.querySelector('.bl-t-inject'); if (fi) fi.checked = STATE.settings.injectDefault;
-        const fhw = fullEl.querySelector('.bl-t-hwarn'); if (fhw) fhw.checked = !STATE.settings || STATE.settings.hungerWarn !== false;
-        const fa = fullEl.querySelector('.bl-t-auto'); if (fa) fa.checked = EXT.autoDetect;
-        const fc = fullEl.querySelector('.bl-t-chain'); if (fc) fc.checked = EXT.chainOn !== false;
-        const fm = fullEl.querySelector('.bl-t-mono'); if (fm) fm.checked = EXT.spriteMono === true;
-        const curTheme = EXT.theme || 'pudding';
-        fullEl.querySelectorAll('.bl-theme-btn').forEach(b => b.classList.toggle('on', b.dataset.theme === curTheme));
-    }
-}
-function pickMascot(key) { if (MASCOTS[key] && ownsMascot(key)) { EXT.mascot = key; saveExt(); renderAll(); } }
-function cycleMascot() { const owned = MASCOT_KEYS.filter(ownsMascot); if (!owned.length) return; const i = owned.indexOf(EXT.mascot); EXT.mascot = owned[(i + 1) % owned.length]; saveExt(); renderAll(); }
-function pips(emoji, n) { return emoji.repeat(Math.max(0, n)) + '·'.repeat(Math.max(0, 5 - n)); }  // 구버전 호환
-// 상태를 "이모지 라벨 NN%" 형태로 표시 (0~100)
-function statPct(emoji, label, val) {
-    const v = clamp0100(val == null ? 0 : val);
-    return label ? `${emoji} ${label} ${v}%` : `${emoji} ${v}%`;
-}
-function npcLine() {
-    if (!STATE.currentNpc || !STATE.npcs[STATE.currentNpc]) return '<span class="bl-slot-empty">아무도 없음</span>';
-    const n = STATE.npcs[STATE.currentNpc];
-    return `${n.emoji} ${escapeHtml(n.nickname || n.name)} · <b>${escapeHtml(n.tier)}</b>`;
-}
-function sitLine() {
-    if (!STATE.currentSituation) return '<span class="bl-slot-empty">평온함</span>';
-    return `${STATE.currentSituation.emoji} ${escapeHtml(STATE.currentSituation.title)}`;
-}
-function itemChip(it) {
-    const bondMark = (it.bond >= 2) ? '💝 ' : '';   // {{char}}/{{user}}와 인연 깊은 물건
-    const nm = subMacros(it.name || '');             // 기존에 매크로로 저장된 것도 화면에선 치환
-    const loreTxt = it.lore ? subMacros(it.lore) : '';
-    const tip = loreTxt ? ` title="${escapeHtml(loreTxt)}"` : '';
-    return `<span class="bl-jchip${it.itemType === 'bait' ? ' bait' : ''}${it.bond >= 2 ? ' bond' : ''}"${tip}>${it.itemType === 'bait' ? '🎣 ' : ''}${bondMark}${RARITY[it.rarity] ? RARITY[it.rarity].dot : ''} ${it.emoji || '📦'} ${escapeHtml(nm)}</span>`;
-}
-function bagPreviewHtml(limit) {
-    if (!STATE.items.length) return '<div class="bl-empty">텅 비었다</div>';
-    const baits = STATE.items.filter(i => i.itemType === 'bait');
-    const junks = STATE.items.filter(i => i.itemType !== 'bait');
-    const shown = baits.concat(junks).slice(0, limit);
-    const rest = STATE.items.length - shown.length;
-    let html = shown.map(itemChip).join('');
-    if (rest > 0) html += `<span class="bl-bag-more">외 ${rest}개</span>`;
-    return html;
-}
-
-// ── 미니 콘솔 (좌: 상태+소지품 / 우: 출현·상황) ──
-let consoleEl = null;
-function buildConsole() {
-    if (consoleEl) return;
-    consoleEl = document.createElement('div');
-    consoleEl.id = 'beastlog-console';
-    // CSS-독립 위치 폴백. bottom은 인라인으로 박지 않고 CSS env()에 위임(safe-area)
-    Object.assign(consoleEl.style, { position: 'fixed', left: '12px', right: '12px', zIndex: '2147483000', maxWidth: '392px', margin: '0 auto' });
-    consoleEl.innerHTML = `
-      <div class="bl-topbar">
-        <span class="bl-grip">⠿</span><span class="bl-title">비스트로그</span>
-        <span class="bl-spacer"></span>
-        <span class="bl-inject"><span class="bl-lab">🌱</span><span class="bl-sw" data-on="false"></span></span>
-        <span class="bl-min" title="아이콘만">▁</span>
-        <span class="bl-up" title="기록·설정 열기">📖</span>
-      </div>
-      <div class="bl-panes">
-        <div class="bl-pane-l">
-          <div class="bl-mini-status">
-            <div class="bl-ms-row">
-              <span class="bl-pet-emoji-mini" title="탭하면 마스코트 변경"></span>
-              <span class="bl-ms-id"><b class="bl-pet-name"></b><span class="bl-lv num"></span></span>
-            </div>
-            <div class="bl-status"><span class="bl-st-mood"></span><span class="bl-st-hunger"></span><span class="bl-st-hp"></span></div>
-            <div class="bl-xmini"><i></i></div>
-            <div class="bl-ms-rep">⭐ <b class="num bl-rep"></b> · 💰 <b class="num bl-money"></b> · 🎒 <b class="num bl-itemcnt"></b></div>
-          </div>
-        </div>
-        <div class="bl-pane-r">
-          <button class="bl-roll">🐯 출현</button>
-          <button class="bl-randevent">🌦️ 상황</button>
-          <div class="bl-cooldown num"></div>
-        </div>
-      </div>
-      <div class="bl-mini-slots">
-        <div class="bl-mini-bag collapsed">
-          <div class="bl-mb-h">🎒 소지품 <span class="bl-mb-cnt num"></span><button class="bl-bag-inject" title="🎣 떡밥을 만지작거려 조우를 유도해요">📤</button><span class="bl-mb-chev">▾</span></div>
-          <div class="bl-bag-list"></div>
-        </div>
-        <div class="bl-slot"><span class="bl-slot-h">📢 현재 상황</span><span class="bl-slot-v bl-sit-v"></span></div>
-        <div class="bl-slot"><span class="bl-slot-h">👤 현재 조우</span><span class="bl-slot-v bl-npc-v"></span></div>
-      </div>`;
-    (document.documentElement || document.body).appendChild(consoleEl);
-    consoleEl.addEventListener('click', noteTouch, true);   // 어떤 조작이든 졸음 깨우기
-    consoleEl.querySelector('.bl-sw').addEventListener('click', () => setInjectDefault(!STATE.settings.injectDefault));
-    consoleEl.querySelector('.bl-pet-emoji-mini').addEventListener('click', cycleMascot);
-    consoleEl.querySelector('.bl-roll').addEventListener('click', onAppear);
-    consoleEl.querySelector('.bl-randevent').addEventListener('click', onSituation);
-    consoleEl.querySelector('.bl-up').addEventListener('click', showFull);
-    consoleEl.querySelector('.bl-min').addEventListener('click', collapseToBubble);
-    consoleEl.querySelector('.bl-bag-inject').addEventListener('click', injectBait);
-    const mbh = consoleEl.querySelector('.bl-mb-h');
-    mbh.addEventListener('click', e => { if (e.target.closest('.bl-bag-inject')) return; mbh.parentElement.classList.toggle('collapsed'); });
-    wireDrag(consoleEl.querySelector('.bl-topbar'));
-}
-function wireDrag(bar) {
-    if (!bar) return;
-    let st = null;
-    bar.addEventListener('pointerdown', e => {
-        if (e.target.closest('button, .bl-sw, .bl-up, .bl-inject')) return;
-        const r = consoleEl.getBoundingClientRect();
-        st = { sx: e.clientX, sy: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false };
-        try { bar.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
-    });
-    bar.addEventListener('pointermove', e => {
-        if (!st) return;
-        if (!st.moved) {
-            if (Math.abs(e.clientX - st.sx) < 6 && Math.abs(e.clientY - st.sy) < 6) return; // 임계값: 탭 보호
-            st.moved = true;
-            consoleEl.style.right = 'auto'; consoleEl.style.bottom = 'auto'; consoleEl.style.margin = '0';
-        }
-        const w = consoleEl.offsetWidth, h = consoleEl.offsetHeight;
-        const nx = Math.max(4, Math.min(window.innerWidth - w - 4, e.clientX - st.dx));
-        const ny = Math.max(4, Math.min(window.innerHeight - h - 4, e.clientY - st.dy));
-        consoleEl.style.left = nx + 'px'; consoleEl.style.top = ny + 'px';
-    });
-    const end = () => {
-        if (st && st.moved && window.innerWidth > 600) { EXT.consolePos = { left: parseInt(consoleEl.style.left, 10), top: parseInt(consoleEl.style.top, 10) }; saveExt(); }
-        st = null;
-    };
-    bar.addEventListener('pointerup', end);
-    bar.addEventListener('pointercancel', end);
-}
-function applyConsolePos() {
-    if (!consoleEl) return;
-    const mobile = window.innerWidth <= 600;
-    const p = EXT.consolePos;
-    // 모바일 or 저장좌표 없음 → 높이 계산해 top을 픽셀로 직접 박음 (bottom 기준 박스 뒤집힘 회피)
-    if (mobile || !p || typeof p.left !== 'number') {
-        const h = consoleEl.offsetHeight || 216;
-        const top = Math.max(4, window.innerHeight - h - 14);
-        consoleEl.style.left = '12px'; consoleEl.style.right = '12px';
-        consoleEl.style.top = top + 'px'; consoleEl.style.bottom = 'auto'; consoleEl.style.margin = '0 auto';
-        return;
-    }
-    const w = consoleEl.offsetWidth || 340, h = consoleEl.offsetHeight || 220;
-    const left = Math.max(4, Math.min(window.innerWidth - w - 4, p.left));
-    const top = Math.max(4, Math.min(window.innerHeight - h - 4, p.top));
-    consoleEl.style.left = left + 'px'; consoleEl.style.top = top + 'px';
-    consoleEl.style.right = 'auto'; consoleEl.style.bottom = 'auto'; consoleEl.style.margin = '0';
-}
-function ensureMounted() {
-    try { const root = document.documentElement || document.body; if (consoleEl && root && !root.contains(consoleEl)) root.appendChild(consoleEl); }
-    catch (e) { /* noop */ }
-}
-function renderConsole() {
-    if (!consoleEl) return;
-    const evo = evoStage(STATE.level), need = levelNeed(STATE.level);
-    consoleEl.querySelector('.bl-pet-emoji-mini').innerHTML = mascotSVG(30);
-    consoleEl.querySelector('.bl-pet-name').textContent = petDisplayName();
-    consoleEl.querySelector('.bl-lv').textContent = 'Lv.' + String(STATE.level).padStart(2, '0');
-    consoleEl.querySelector('.bl-st-mood').textContent = statPct('😊', '', STATE.mood);
-    consoleEl.querySelector('.bl-st-hunger').textContent = statPct('🍖', '', STATE.hunger);
-    consoleEl.querySelector('.bl-st-hp').textContent = statPct('⚡', '', STATE.hp);
-    consoleEl.querySelector('.bl-xmini i').style.width = Math.min(100, (STATE.xp / need) * 100) + '%';
-    consoleEl.querySelector('.bl-rep').textContent = (STATE.rep > 0 ? '+' : '') + STATE.rep;
-    const mm = consoleEl.querySelector('.bl-money'); if (mm) mm.textContent = fmtMoney(STATE.money);
-    consoleEl.querySelector('.bl-itemcnt').textContent = STATE.items.length;
-    consoleEl.querySelector('.bl-sw').dataset.on = STATE.settings.injectDefault ? 'true' : 'false';
-    consoleEl.querySelector('.bl-bag-list').innerHTML = bagPreviewHtml(3);
-    consoleEl.querySelector('.bl-mb-cnt').textContent = STATE.items.length;
-    const rem = injectRemaining();
-    consoleEl.querySelector('.bl-cooldown').textContent = rem > 0 ? `💉 ${rem}턴` : '💉 준비';
-    consoleEl.querySelector('.bl-sit-v').innerHTML = sitLine();
-    consoleEl.querySelector('.bl-npc-v').innerHTML = npcLine();
-}
-
-// ── 풀버전 (리치) ──
-let fullEl = null;
-const PREVIEW_N = 3;          // 메인 화면에서 섹션별 미리보기 개수
-let listView = 'main';        // 'main' | 'enc' | 'dex' | 'bag' — 어느 목록을 전체보기 중인지
-function buildFull() {
-    if (fullEl) return;
-    fullEl = document.createElement('div');
-    fullEl.id = 'beastlog-full';
-    Object.assign(fullEl.style, { position: 'fixed', top: '0', left: '0', right: 'auto', bottom: 'auto', width: '100vw', height: '100vh', zIndex: '2147483400', boxSizing: 'border-box' });
-    fullEl.style.display = 'none';
-    fullEl.innerHTML = `
-      <div class="bl-full-card">
-        <div class="bl-full-sign">
-          <div class="bl-full-logo">🐯 비스트로그</div>
-          <div class="bl-full-actions"><button class="bl-min" title="작게">⊟</button><button class="bl-close" title="닫기">✕</button></div>
-        </div>
-        <div class="bl-tabs">
-          <button class="bl-tab on" data-tab="main">🏠 메인</button>
-          <button class="bl-tab" data-tab="work">🛠️ 알바</button>
-          <button class="bl-tab" data-tab="quest">🎯 퀘스트</button>
-          <button class="bl-tab" data-tab="shop">🏪 상점</button>
-          <button class="bl-tab" data-tab="set">⚙️ 세팅</button>
-        </div>
-        <div class="bl-full-body">
-          <div class="bl-tab-panel" data-panel="main">
-          <div class="bl-pet-card">
-            <div class="bl-pet-namebox">
-              <div class="bl-pet-top"><span class="bl-pet-name"></span><button class="bl-rename-btn" title="이름 짓기 (작명소)">✏️</button><span class="bl-pet-lv">Lv.<b class="num bl-pet-lvnum"></b></span></div>
-              <div class="bl-pet-stage"></div>
-            </div>
-            <div class="bl-pet"><span class="bl-pet-emoji"></span></div>
-            <div class="bl-status">
-              <span class="bl-st">😊 기분 <b class="bl-st-mood"></b></span>
-              <span class="bl-st">🍖 배고픔 <b class="bl-st-hunger"></b></span>
-              <span class="bl-st">⚡ 체력 <b class="bl-st-hp"></b></span>
-            </div>
-            <div class="bl-pet-xptext num"></div><div class="bl-pet-xpbar"><i></i></div>
-            <div class="bl-pet-stats">⭐ <b class="num bl-pet-rep"></b> · 💰 <b class="num bl-pet-money"></b> · 🎒 <b class="num bl-pet-items"></b> · <span class="bl-pet-title"></span></div>
-            <button class="bl-feed">🍖 밥 주기</button>
-            <div class="bl-pet-pick"></div>
-          </div>
-          <div class="bl-slots">
-            <div class="bl-slot"><span class="bl-slot-h">📢 현재 상황</span><span class="bl-slot-v bl-sit-v"></span></div>
-            <div class="bl-slot"><span class="bl-slot-h">👤 현재 조우</span><span class="bl-slot-v bl-npc-v"></span></div>
-          </div>
-          <div class="bl-full-rolls"><button class="bl-roll2">🐯 출현</button><button class="bl-rand2">🌦️ 상황</button></div>
-          <div class="bl-acc bl-acc-enc">
-            <div class="bl-acc-head"><h3>📜 모험일지</h3><span class="bl-rule"></span><span class="bl-enc-cnt num"></span><button class="bl-clear-btn bl-enc-clear" title="전체 비우기">🧹</button><span class="bl-chev">▾</span></div>
-            <div class="bl-acc-body"><div class="bl-enc-list"></div></div>
-          </div>
-          <div class="bl-acc bl-acc-dex">
-            <div class="bl-acc-head"><h3>📖 도감</h3><span class="bl-rule"></span><span class="bl-dex-cnt num"></span><button class="bl-clear-btn bl-dex-clear" title="도감 전체 삭제">🧹</button><span class="bl-chev">▾</span></div>
-            <div class="bl-acc-body"><div class="bl-dex-list"></div></div>
-          </div>
-          <div class="bl-acc bl-acc-bag">
-            <div class="bl-acc-head"><h3>🎒 가방</h3><span class="bl-rule"></span><span class="bl-junk-cnt num"></span><button class="bl-clear-btn bl-bag-clear" title="전체 비우기">🧹</button><span class="bl-chev">▾</span></div>
-            <div class="bl-acc-body"><div class="bl-bag-tip">🎣 <b>떡밥</b> 표시가 붙은 물건은 만지작거리면 조우를 부를 수 있어요(희귀할수록 떡밥일 확률↑). 💝는 캐릭터·유저와 인연 깊은 물건.</div><div class="bl-junk-list"></div></div>
-          </div>
-          <button class="bl-main-reset">🔄 처음으로 (완전 초기화)</button>
-          </div>
-          <div class="bl-tab-panel" data-panel="work" hidden>
-            <div class="bl-work">
-              <div class="bl-money-bar">보유 <b class="num bl-work-money">0원</b><button class="bl-donate" title="전 재산 후원">💝 후원</button></div>
-              <button class="bl-work-go">🛠️ 알바 뛰기</button>
-              <div class="bl-work-cd"></div>
-              <div class="bl-lotto">
-                <button class="bl-lotto-go">🎰 즉석복권 긁기 (1천원)</button>
-                <div class="bl-lotto-info"></div>
-              </div>
-              <div class="bl-acc bl-work-acc collapsed">
-                <div class="bl-acc-head"><h3>🛠️ 알바 내역</h3><span class="bl-rule"></span><span class="bl-job-cnt num"></span><button class="bl-clear-btn bl-jobs-clear" title="전체 비우기">🧹</button><span class="bl-chev">▾</span></div>
-                <div class="bl-acc-body"><div class="bl-jobs-list"></div></div>
-              </div>
-              <div class="bl-work-tip">RP 캐릭터가 직접 세계관에 맞는 알바를 뛰고 와요. 성격이 후기에 묻어남. 보수는 짜고 가끔 사건도 터져요. (알바하면 살짝 배고파짐)</div>
-            </div>
-          </div>
-          <div class="bl-tab-panel" data-panel="quest" hidden>
-            <div class="bl-quest">
-              <button class="bl-quest-new">🎲 퀘스트 받기</button>
-              <div class="bl-quest-cd"></div>
-              <div class="bl-quest-list"></div>
-              <div class="bl-acc bl-secrets-acc collapsed">
-                <div class="bl-acc-head"><h3>🔒 알아낸 비밀</h3><span class="bl-rule"></span><span class="bl-secrets-cnt num"></span><span class="bl-chev">▾</span></div>
-                <div class="bl-acc-body"><div class="bl-secrets-list"></div></div>
-              </div>
-              <div class="bl-work-tip">RP 안에서 목표를 이루면 보상이 떨어져요. 퀘스트는 채팅에 끼어들지 않아요 — 너희가 한 행동·대사를 보고 판정할 뿐. 최대 3개.</div>
-            </div>
-          </div>
-          <div class="bl-tab-panel" data-panel="shop" hidden>
-            <div class="bl-shop">
-              <div class="bl-money-bar">보유 <b class="num bl-shop-money">0원</b></div>
-              <div class="bl-shop-list"></div>
-              <div class="bl-work-tip">알바로 번 돈으로 새 동물을 데려와요. 시작 3종(호랑이·고양이·강아지)은 무료, 나머지는 구매.</div>
-            </div>
-          </div>
-          <div class="bl-tab-panel" data-panel="set" hidden>
-            <div class="bl-philo">기본은 <b>인게임에만</b> 쌓여요. RP는 안 건드림. 아래를 켜면 쌓인 기억을 캐릭터가 가끔 회상하게 됩니다 (선택).</div>
-            <div class="bl-full-toggles">
-              <label><span>🌱 기억을 RP에 흘리기 <small>(선택) — 켜면 쌓인 NPC·일지를 캐릭터가 대화 중 가끔 자연스럽게 떠올려요. 강제 등장 X, 그냥 슬쩍</small></span><input type="checkbox" class="bl-t-inject"></label>
-              <label><span>🔗 이벤트 체인 <small>(켜면 조우·상황이 랜덤 1~3단계로 이어짐 / 끄면 1번에 끝)</small></span><input type="checkbox" class="bl-t-chain"></label>
-              <label><span>🎨 마스코트 흑백(도트라인)</span><input type="checkbox" class="bl-t-mono"></label>
-              <label><span>📥 자동 출현 <small>(켜면 RP 상대 답장마다 랜덤 3~4회 간격으로 조우·상황이 저절로 뜸 / 끄면 버튼으로 직접)</small></span><input type="checkbox" class="bl-t-auto"></label>
-              <label><span>🍖 배고픔 알림 <small>(켜면 배고프거나 삐졌을 때 살짝 토스트로 알려줘요 / 끄면 조용히)</small></span><input type="checkbox" class="bl-t-hwarn"></label>
-            </div>
-            <div class="bl-theme-row">
-              <span class="bl-theme-lbl">🎨 테마</span>
-              <div class="bl-theme-btns">
-                ${BL_THEMES.map(t => `<button class="bl-theme-btn" data-theme="${t.k}">${t.label}</button>`).join('')}
-              </div>
-            </div>
-            <div class="bl-cd-note">⏱️ 자동 출현은 <b>랜덤 3~4회</b> 간격으로 조절돼요.</div>
-            <div class="bl-data-sec">
-              <div class="bl-data-ttl">💾 데이터</div>
-              <div class="bl-data-btns">
-                <button class="bl-data-export">백업 내보내기</button>
-                <button class="bl-data-import">백업 불러오기</button>
-              </div>
-              <button class="bl-data-reset">🔄 완전 초기화</button>
-            </div>
-          </div>
-        </div>
-      </div>`;
-    (document.documentElement || document.body).appendChild(fullEl);
-    fullEl.addEventListener('click', noteTouch, true);   // 어떤 조작이든 졸음 깨우기
-    fullEl.querySelector('.bl-min').addEventListener('click', showMini);
-    fullEl.querySelector('.bl-close').addEventListener('click', hideHud);
-    fullEl.querySelectorAll('.bl-tab').forEach(t => t.addEventListener('click', () => {
-        const tab = t.dataset.tab;
-        if (listView !== 'main') { listView = 'main'; fullEl.classList.remove('bl-soloview'); renderFull(); }   // 탭 이동 시 전체보기 해제
-        fullEl.querySelectorAll('.bl-tab').forEach(x => x.classList.toggle('on', x === t));
-        fullEl.querySelectorAll('.bl-tab-panel').forEach(p => { p.hidden = (p.dataset.panel !== tab); });
-        fullEl.querySelector('.bl-full-body').scrollTop = 0;
-    }));
-    fullEl.querySelector('.bl-t-inject').addEventListener('change', e => setInjectDefault(e.target.checked));
-    fullEl.querySelector('.bl-t-chain').addEventListener('change', e => setChain(e.target.checked));
-    fullEl.querySelector('.bl-t-mono').addEventListener('change', e => setSpriteMono(e.target.checked));
-    fullEl.querySelector('.bl-t-auto').addEventListener('change', e => setAutoDetect(e.target.checked));
-    { const hw = fullEl.querySelector('.bl-t-hwarn'); if (hw) hw.addEventListener('change', e => { STATE.settings.hungerWarn = e.target.checked; saveState(STATE); if (e.target.checked) hungerWarnLevel = -1; }); }
-    fullEl.querySelector('.bl-roll2').addEventListener('click', onAppear);
-    fullEl.querySelector('.bl-rand2').addEventListener('click', onSituation);
-    fullEl.querySelectorAll('.bl-acc-head').forEach(h => h.addEventListener('click', e => { if (e.target.closest('.bl-clear-btn')) return; h.parentElement.classList.toggle('collapsed'); }));
-    fullEl.querySelector('.bl-enc-clear').addEventListener('click', e => { e.stopPropagation(); clearEncounters(); });
-    fullEl.querySelector('.bl-dex-clear').addEventListener('click', e => { e.stopPropagation(); clearNpcs(); });
-    fullEl.querySelector('.bl-bag-clear').addEventListener('click', e => { e.stopPropagation(); clearItems(); });
-    fullEl.querySelector('.bl-pet-pick').addEventListener('click', e => { const b = e.target.closest('.bl-pick-btn'); if (b) pickMascot(b.dataset.m); });
-    fullEl.querySelector('.bl-work-go').addEventListener('click', onWork);
-    const lottoBtn = fullEl.querySelector('.bl-lotto-go'); if (lottoBtn) lottoBtn.addEventListener('click', buyLotto);
-    fullEl.querySelector('.bl-donate').addEventListener('click', onDonate);
-    { const fb = fullEl.querySelector('.bl-feed'); if (fb) fb.addEventListener('click', onFeed); }
-    { const rb = fullEl.querySelector('.bl-rename-btn'); if (rb) rb.addEventListener('click', onRename); }
-    { const qn = fullEl.querySelector('.bl-quest-new'); if (qn) qn.addEventListener('click', onNewQuest); }
-    { const ql = fullEl.querySelector('.bl-quest-list'); if (ql) ql.addEventListener('click', e => {
-        const c = e.target.closest('.bl-quest-check'); if (c) { onCheckQuest(c.dataset.id); return; }
-        const d = e.target.closest('.bl-quest-del'); if (d) deleteQuest(d.dataset.id);
-    }); }
-    fullEl.querySelector('.bl-jobs-clear').addEventListener('click', e => { e.stopPropagation(); clearJobs(); });
-    fullEl.querySelector('.bl-jobs-list').addEventListener('click', e => {
-        const more = e.target.closest('.bl-more-btn'); if (more) { setListView(more.dataset.view); return; }
-        const b = e.target.closest('.bl-job-del'); if (b) deleteJob(b.dataset.id);
-    });
-    { const sl = fullEl.querySelector('.bl-secrets-list'); if (sl) sl.addEventListener('click', e => {
-        const more = e.target.closest('.bl-more-btn'); if (more) setListView(more.dataset.view);
-    }); }
-    fullEl.querySelector('.bl-main-reset').addEventListener('click', resetAll);
-    fullEl.querySelector('.bl-data-export').addEventListener('click', exportData);
-    fullEl.querySelectorAll('.bl-theme-btn').forEach(b => b.addEventListener('click', () => setTheme(b.dataset.theme)));
-    fullEl.querySelector('.bl-data-import').addEventListener('click', importData);
-    fullEl.querySelector('.bl-data-reset').addEventListener('click', resetAll);
-    fullEl.querySelector('.bl-shop-list').addEventListener('click', e => { const b = e.target.closest('.bl-shop-buy'); if (b) buyMascot(b.dataset.m); });
-    fullEl.querySelector('.bl-enc-list').addEventListener('click', e => {
-        const more = e.target.closest('.bl-more-btn');
-        if (more) { setListView(more.dataset.view); return; }
-        const rev = e.target.closest('.bl-reveal');
-        if (rev) { const en = STATE.encounters.find(x => x.id === rev.dataset.id); if (en) { en.revealed = true; saveState(STATE); renderFull(); } return; }
-        const pinb = e.target.closest('.bl-pin');
-        if (pinb) { if (!pinb.disabled) pinMemory(pinb.dataset.pin); return; }
-        const del = e.target.closest('.bl-tk-del');
-        if (del) { e.stopPropagation(); deleteEncounter(del.dataset.id); return; }
-        const head = e.target.closest('.bl-tk-head');
-        if (head) {
-            const tk = head.parentElement; tk.classList.toggle('collapsed');
-            const en = STATE.encounters.find(x => x.id === tk.dataset.id);
-            if (en) { en.open = !tk.classList.contains('collapsed'); saveState(STATE); }
-        }
-    });
-    fullEl.querySelector('.bl-dex-list').addEventListener('click', e => {
-        const more = e.target.closest('.bl-more-btn');
-        if (more) { setListView(more.dataset.view); return; }
-        const pinb = e.target.closest('.bl-pin');
-        if (pinb) { if (!pinb.disabled) pinMemory(pinb.dataset.pin); return; }
-        const del = e.target.closest('.bl-dex-del');
-        if (del) { deleteNpc(del.dataset.npc); return; }
-        const rn = e.target.closest('.bl-dex-rename');
-        if (rn) { renameNpc(rn.dataset.npc); return; }
-        const head = e.target.closest('.bl-dex-head');
-        if (head) {
-            const card = head.parentElement; card.classList.toggle('collapsed');
-            const n = STATE.npcs[card.dataset.npc];
-            if (n) { n._open = !card.classList.contains('collapsed'); saveState(STATE); }
-        }
-    });
-    fullEl.querySelector('.bl-junk-list').addEventListener('click', e => {
-        const more = e.target.closest('.bl-more-btn');
-        if (more) { setListView(more.dataset.view); return; }
-        const pinb = e.target.closest('.bl-pin');
-        if (pinb) { if (!pinb.disabled) pinMemory(pinb.dataset.pin); return; }
-        const del = e.target.closest('.bl-item-del'); if (!del) return;
-        deleteItem(del.dataset.id);
-    });
-    fullEl.addEventListener('click', e => { if (e.target === fullEl) showMini(); });
-}
-// 목록 전체보기 모드 전환: main이면 다 보이고, 특정 섹션이면 그 섹션만
-function setListView(v) {
-    const valid = ['enc', 'dex', 'bag', 'job', 'sec'];
-    listView = valid.includes(v) ? v : 'main';
-    if (fullEl) {
-        // 메인 탭(일지·도감·가방)만 solo 레이아웃 적용. 알바·비밀은 자기 탭 안이라 단순 펼침.
-        const isMainSection = (listView === 'enc' || listView === 'dex' || listView === 'bag');
-        fullEl.classList.toggle('bl-soloview', isMainSection);
-        fullEl.setAttribute('data-solo', isMainSection ? listView : 'main');
-        if (listView !== 'main') {
-            const map = { enc: '.bl-enc-list', dex: '.bl-dex-list', bag: '.bl-junk-list', job: '.bl-jobs-list', sec: '.bl-secrets-list' };
-            const sel = map[listView];
-            const el = sel && fullEl.querySelector(sel);
-            const acc = el && el.closest('.bl-acc');
-            if (acc) acc.classList.remove('collapsed');
-        }
-        const scroller = fullEl.querySelector('.bl-full-body') || fullEl;
-        if (scroller) scroller.scrollTop = 0;
-    }
-    renderFull();
-}
-function afterBlock(e) {
-    const inner = e.inner || {};
-    const foeLine = inner.foe ? `<div class="bl-af-line">💭 ${escapeHtml(inner.foe)}</div>` : '';
-    const youLine = inner.user ? `<div class="bl-af-line bl-af-you">👤 ${escapeHtml(inner.user)}</div>` : '';
-    const innerWrap = (foeLine || youLine) ? `<div class="bl-after">${foeLine}${youLine}</div>` : '';
-    const rare = e.after
-        ? `<div class="bl-af-rare">🗞️ 후일담 — ${escapeHtml(e.after)}</div>`
-        : `<div class="bl-af-none">🗞️ ${escapeHtml(e._noNews || '별 소문 없었다.')}</div>`;
-    return innerWrap + rare;
-}
-function chipsHtml(e) {
-    return `${e.affDelta ? `<span class="bl-chip">❤️ ${e.affDelta > 0 ? '+' : ''}${e.affDelta}</span>` : ''}${e.rep ? `<span class="bl-chip">⭐ ${e.rep > 0 ? '+' : ''}${e.rep}</span>` : ''}<span class="bl-chip">EXP ${e.exp >= 0 ? '+' : ''}${e.exp}</span>${e.drop ? `<span class="bl-chip">${e.dropBait ? '🎣 ' : ''}${escapeHtml(e.drop)}</span>` : ''}`;
-}
-function dexCard(n) {
-    const disp = n.nickname || n.name;
-    const logHtml = (n.log && n.log.length)
-        ? `<div class="bl-dex-log"><div class="bl-dex-logttl">🕰️ 변화 로그</div>${n.log.map(l => `<div class="bl-dex-logrow"><span class="num">${escapeHtml(l.date)}</span> ${escapeHtml(l.note)}</div>`).join('')}</div>` : '';
-    const place = n.lastPlace || n.firstPlace || '';
-    const tagHtml = (n.env && n.env.length)
-        ? `<div class="bl-dex-tags">${n.env.slice(0, 5).map(t => `<span class="bl-tag">#${escapeHtml(t)}</span>`).join('')}</div>` : '';
-    const d = daysSince(n.lastMetTs);
-    const tone = relTierObj(n.affinity || 0).tone;
-    return `
-      <div class="bl-dex${n._open ? '' : ' collapsed'}" data-npc="${escapeHtml(n.name)}">
-        <div class="bl-dex-head">
-          <span class="bl-dex-emoji">${n.emoji || '👤'}</span>
-          <span class="bl-dex-nm">${escapeHtml(disp)}${n.terjut ? ' <span class="bl-terjut">터줏대감</span>' : ''}</span>
-          <span class="bl-dex-rel bl-tone-${tone}">${escapeHtml(n.tier)}</span><span class="bl-dex-chev">▾</span>
-        </div>
-        <div class="bl-dex-body">
-          ${place ? `<div class="bl-dex-row"><span>출몰 장소</span><b>${escapeHtml(place)}</b></div>` : ''}
-          ${tagHtml}
-          <div class="bl-dex-row"><span>첫 조우</span><b class="num">${escapeHtml(n.firstMet || '기록 없음')}</b></div>
-          <div class="bl-dex-row"><span>최근 조우</span><b class="num">${escapeHtml(n.lastMet || '-')}${d != null && d >= 1 ? ` <span class="bl-dim">(${d}일 전)</span>` : ''}</b></div>
-          <div class="bl-dex-row"><span>조우 횟수</span><b class="num">${n.metCount}번</b></div>
-          <div class="bl-dex-row"><span>현재 상태</span><b>${escapeHtml(n.state || '평범함')}</b></div>
-          <div class="bl-dex-mem">💭 특별 기억 — ${n.memory ? escapeHtml(n.memory) : '<span class="bl-dim">아직 없음</span>'}</div>
-          ${logHtml}
-          <div class="bl-dex-btns">${pinBtn('npc:' + n.name)}<button class="bl-dex-rename" data-npc="${escapeHtml(n.name)}">✏️ 이름 짓기</button><button class="bl-dex-del" data-npc="${escapeHtml(n.name)}" title="이 인물 삭제">🗑️ 삭제</button></div>
-        </div>
-      </div>`;
-}
-const DEX_GROUPS = [{ key: 'creature', label: '🐾 생물' }, { key: 'person', label: '👤 인물' }, { key: 'object', label: '📦 사물' }];
-function tkLabel(e) {
-    if (e && e.summary) return e.summary;               // 전체 내용 요약 한 줄 (우선)
-    if (e && e.foe) return e.foe;                        // 없으면 대상 이름
-    const t = stripTags((e && e.title) || '');
-    return t.length > 20 ? t.slice(0, 19) + '…' : (t || '조우');
-}
-function questRewardBadge(q) {
-    if (q.rewardType === 'money') return `<span class="bl-q-reward">💰 ${fmtMoney(q.reward)}</span>`;
-    if (q.rewardType === 'item') return `<span class="bl-q-reward gift">🎁 정체불명의 선물</span>`;
-    if (q.rewardType === 'xp') return `<span class="bl-q-reward xp">⭐ 경험치 +${q.reward}</span>`;
-    return `<span class="bl-q-reward secret">🔒 누군가의 비밀</span>`;
-}
-function renderQuests() {
-    if (!fullEl) return;
-    const ql = fullEl.querySelector('.bl-quest-list'); if (!ql) return;
-    const qs = STATE.quests || [];
-    const qcd = fullEl.querySelector('.bl-quest-cd');
-    if (qcd) { const r = questRemaining(); qcd.textContent = qs.length >= QUEST_MAX ? '🔒 의뢰판이 꽉 찼다 (3/3) — 먼저 끝내기' : (r > 0 ? `🔒 ${r}턴 뒤 새 의뢰` : '🎲 새 의뢰 받을 수 있음'); }
-    ql.innerHTML = qs.length ? qs.map(q => `
-        <div class="bl-quest-card">
-          <div class="bl-q-top"><span class="bl-q-emoji">${q.emoji || '🎯'}</span><span class="bl-q-goal">${escapeHtml(q.goal)}</span></div>
-          <div class="bl-q-bot">${questRewardBadge(q)}<button class="bl-quest-check" data-id="${q.id}">완료 확인</button><button class="bl-quest-del" data-id="${q.id}" title="포기">🗑️</button></div>
-        </div>`).join('') : '<div class="bl-empty">받은 퀘스트가 없어요. 🎲 퀘스트 받기를 눌러보세요.</div>';
-    const secs = STATE.secrets || [];
-    const sc = fullEl.querySelector('.bl-secrets-cnt'); if (sc) sc.textContent = secs.length + '개';
-    const sl = fullEl.querySelector('.bl-secrets-list');
-    if (sl) {
-        const secShow = (listView === 'sec') ? secs : secs.slice(0, PREVIEW_N);
-        sl.innerHTML = secs.length ? secShow.map(s => `<div class="bl-secret-row">🔒 <b>${escapeHtml(s.text)}</b>${s.goal ? `<span class="bl-secret-meta"> — ${escapeHtml(s.goal)}</span>` : ''}</div>`).join('') + moreBtn('sec', secs.length) : '<div class="bl-empty">아직 알아낸 비밀이 없어요.</div>';
-    }
-}
-function renderFull() {
-    if (!fullEl) return;
-    const evo = evoStage(STATE.level), need = levelNeed(STATE.level);
-    fullEl.querySelector('.bl-pet-emoji').innerHTML = mascotSVG(72);
-    fullEl.querySelector('.bl-pet-name').textContent = petDisplayName();
-    { const sub = fullEl.querySelector('.bl-pet-stage'); if (sub) sub.textContent = (STATE.petName && STATE.petName.trim()) ? evo.name : curMascot().label; }
-    fullEl.querySelector('.bl-pet-lvnum').textContent = String(STATE.level).padStart(2, '0');
-    fullEl.querySelector('.bl-st-mood').textContent = clamp0100(STATE.mood) + '%';
-    fullEl.querySelector('.bl-st-hunger').textContent = clamp0100(STATE.hunger) + '%';
-    fullEl.querySelector('.bl-st-hp').textContent = clamp0100(STATE.hp) + '%';
-    fullEl.querySelector('.bl-pet-xptext').textContent = `${Math.min(100, Math.floor((STATE.xp / need) * 100))}% / 100%`;
-    fullEl.querySelector('.bl-pet-xpbar i').style.width = Math.min(100, (STATE.xp / need) * 100) + '%';
-    fullEl.querySelector('.bl-pet-rep').textContent = (STATE.rep > 0 ? '+' : '') + STATE.rep;
-    fullEl.querySelector('.bl-pet-money').textContent = fmtMoney(STATE.money);
-    fullEl.querySelector('.bl-pet-items').textContent = STATE.items.length;
-    fullEl.querySelector('.bl-pet-title').textContent = STATE.title;
-    // 알바 탭
-    const wm = fullEl.querySelector('.bl-work-money'); if (wm) wm.textContent = fmtMoney(STATE.money);
-    const wcd = fullEl.querySelector('.bl-work-cd'); if (wcd) { const r = jobRemaining(); wcd.textContent = r > 0 ? `😮‍💨 ${r}턴 더 쉬어야` : '✅ 알바 가능'; }
-    const lottoBox = fullEl.querySelector('.bl-lotto'); const lottoBtn = fullEl.querySelector('.bl-lotto-go'); const lottoInfo = fullEl.querySelector('.bl-lotto-info');
-    if (lottoBox) {
-        if (lottoUnlocked()) {
-            lottoBox.style.display = '';
-            const left = lottoLeft();
-            if (lottoBtn) lottoBtn.disabled = !canLotto();
-            if (lottoInfo) lottoInfo.textContent = left > 0
-                ? `🎟️ ${left}/${LOTTO_MAX}장 남음 · 알바비가 짰으니 한탕 노려봐요 (5천/1만/5만/꽝)`
-                : '이번 알바 복권 다 썼어요 — 다음 알바 후 다시';
-        } else {
-            lottoBox.style.display = 'none';   // 알바비 1만5천원 초과면 숨김
-        }
-    }
-    const jc = fullEl.querySelector('.bl-job-cnt'); if (jc) jc.textContent = (STATE.jobs || []).length + '건';
-    const jl = fullEl.querySelector('.bl-jobs-list');
-    if (jl) {
-        const jobAll = STATE.jobs || [];
-        const jobShow = (listView === 'job') ? jobAll : jobAll.slice(0, PREVIEW_N);
-        jl.innerHTML = jobAll.length
-            ? jobShow.map(j => `<div class="bl-job-row" data-id="${j.id}"><div class="bl-job-rmain"><span class="bl-job-rttl">${escapeHtml(j.job)}</span><span class="bl-job-rpay num">+${fmtMoney(j.pay)}</span></div><div class="bl-job-rrep">${escapeHtml(j.report)}${j.incident ? ' ⚠️ ' + escapeHtml(j.incident) : ''}</div><button class="bl-job-del" data-id="${j.id}" title="삭제">🗑️</button></div>`).join('') + moreBtn('job', jobAll.length)
-            : '<div class="bl-empty">아직 알바 안 함</div>';
-    }
-    // 상점 탭
-    const sm = fullEl.querySelector('.bl-shop-money'); if (sm) sm.textContent = fmtMoney(STATE.money);
-    const sl = fullEl.querySelector('.bl-shop-list'); if (sl) sl.innerHTML = shopListHtml();
-    fullEl.querySelector('.bl-pet-pick').innerHTML = MASCOT_KEYS.filter(ownsMascot).map(k => `<button class="bl-pick-btn${EXT.mascot === k ? ' on' : ''}" data-m="${k}" title="${MASCOTS[k].label}">${spriteSVG(k, 26, EXT.spriteMono === true)}</button>`).join('');
-    fullEl.querySelector('.bl-sit-v').innerHTML = sitLine();
-    fullEl.querySelector('.bl-npc-v').innerHTML = npcLine();
-    fullEl.querySelector('.bl-t-inject').checked = STATE.settings.injectDefault;
-    fullEl.querySelector('.bl-t-chain').checked = EXT.chainOn !== false;
-    fullEl.querySelector('.bl-t-mono').checked = EXT.spriteMono === true;
-    fullEl.querySelector('.bl-t-auto').checked = EXT.autoDetect;
-    { const ct = EXT.theme || 'pudding'; fullEl.querySelectorAll('.bl-theme-btn').forEach(b => b.classList.toggle('on', b.dataset.theme === ct)); }
-    renderQuests();
-
-    // ── 모험일지 ──
-    const encAll = STATE.encounters;
-    const encShow = (listView === 'enc') ? encAll : encAll.slice(0, PREVIEW_N);
-    fullEl.querySelector('.bl-enc-cnt').textContent = encAll.length + '건';
-    fullEl.querySelector('.bl-enc-list').innerHTML = encAll.length
-        ? encShow.map(e => `
-            <div class="bl-ticket bl-tk-${e.category || 'npc'}${e.open ? '' : ' collapsed'}" data-id="${e.id}">
-              <div class="bl-tk-head"><span class="bl-tk-time num">${e.time || ''}</span><span class="bl-tk-emoji">${e.emoji}</span><span class="bl-tk-title">${e.backfire ? '💥 ' : ''}${escapeHtml(tkLabel(e))}</span>${e.rarity && e.rarity !== 'common' ? `<span class="bl-tk-rar">${RARITY[e.rarity].dot}</span>` : ''}<span class="bl-tk-chev">▾</span></div>
-              <div class="bl-tk-body">
-                <div class="bl-tk-fulltitle">${escapeHtml(e.title)}</div>
-                <div class="bl-tk-desc">${escapeHtml(e.desc)}</div>
-                <div class="bl-tk-foot">${chipsHtml(e)}${pinBtn('enc:' + e.id)}<button class="bl-tk-del" data-id="${e.id}" title="삭제">🗑️</button></div>
-                ${e.inner ? (e.revealed ? afterBlock(e) : `<button class="bl-reveal" data-id="${e.id}">🗞️ 뒷소문 보기</button>`) : ''}
-              </div>
-            </div>`).join('') + moreBtn('enc', encAll.length)
-        : '<div class="bl-empty">아직 아무 일도 없었다. 조용한 하루다.</div>';
-
-    // ── 도감 ──
-    const npcArr = Object.values(STATE.npcs);
-    const dexShow = (listView === 'dex') ? npcArr : npcArr.slice(0, PREVIEW_N);
-    fullEl.querySelector('.bl-dex-cnt').textContent = '발견 ' + npcArr.length;
-    fullEl.querySelector('.bl-dex-list').innerHTML = npcArr.length
-        ? ((listView === 'dex')
-            ? (DEX_GROUPS.map(g => {
-                const arr = npcArr.filter(n => (n.dexType || 'creature') === g.key);
-                if (!arr.length) return '';
-                return `<div class="bl-dex-grouphead">${g.label} <span class="num">${arr.length}</span></div>` + arr.map(dexCard).join('');
-            }).join('') || '<div class="bl-empty">아직 아무도 못 만났다.</div>')
-            : dexShow.map(dexCard).join('') + moreBtn('dex', npcArr.length))
-        : '<div class="bl-empty">아직 아무도 못 만났다.</div>';
-
-    // ── 가방 ──
-    const itemAll = STATE.items;
-    const itemShow = (listView === 'bag') ? itemAll : itemAll.slice(0, PREVIEW_N);
-    fullEl.querySelector('.bl-junk-cnt').textContent = itemAll.length + '개';
-    fullEl.querySelector('.bl-junk-list').innerHTML = itemAll.length
-        ? itemShow.map(it => `<div class="bl-item-row"><div class="bl-item-main">${itemChip(it)}${it.lore ? `<div class="bl-item-lore">${escapeHtml(subMacros(it.lore))}</div>` : ''}</div>${pinBtn('item:' + it.id)}<button class="bl-item-del" data-id="${it.id}" title="버리기">🗑️</button></div>`).join('') + moreBtn('bag', itemAll.length)
-        : '<div class="bl-empty">텅 비었다.</div>';
-}
-// 전체보기/접기 버튼 — 미리보기 모드에서 항목이 더 있으면 "전체보기", 전체보기 모드면 "접기"
-function moreBtn(key, total) {
-    if (listView === key) return `<button class="bl-more-btn" data-view="main">▲ 접기</button>`;
-    if (total > PREVIEW_N) return `<button class="bl-more-btn" data-view="${key}">전체보기 (${total}) ▾</button>`;
     return '';
 }
 
-// ── 상태 전환 ──
-function showMini() { listView = 'main'; if (bubbleEl) bubbleEl.style.display = 'none'; if (consoleEl) consoleEl.style.display = ''; if (fullEl) fullEl.style.display = 'none'; ensureMounted(); applyConsolePos(); renderConsole(); }
-function showFull() { listView = 'main'; buildFull(); if (bubbleEl) bubbleEl.style.display = 'none'; if (consoleEl) consoleEl.style.display = 'none'; fullEl.style.display = 'flex'; if (fullEl.classList) fullEl.classList.remove('bl-soloview'); renderFull(); }
-function hideHud() { if (consoleEl) consoleEl.style.display = 'none'; if (fullEl) fullEl.style.display = 'none'; }
-function renderAll() { renderConsole(); if (fullEl) renderFull(); if (bubbleEl) bubbleEl.innerHTML = mascotSVG(34); }
+// ─── 상태 ───
+let currentCommentary = null;   // 현재 해설 데이터
+let archiveOpen = false;        // 특전 수록함(보관함) 페이지를 패널에 띄운 상태
+let isGenerating = false;
+let genController = null;        // 진행 중 생성 취소용 (탭 중단 / 채팅 전환 시 abort)
+let fallbackWarned = false;     // 프로필 격리 실패 경고 토스트 세션 1회 제한
 
-let bubbleEl = null;
-let _bubbleMoved = false;
-function buildBubble() {
-    if (bubbleEl) return;
-    bubbleEl = document.createElement('div');
-    bubbleEl.id = 'beastlog-bubble';
-    bubbleEl.title = '비스트로그 (드래그로 이동)';
-    Object.assign(bubbleEl.style, { position: 'fixed', zIndex: '2147483000', display: 'none', touchAction: 'none' });
-    (document.documentElement || document.body).appendChild(bubbleEl);
-    bubbleEl.addEventListener('click', () => { if (_bubbleMoved) { _bubbleMoved = false; return; } showMini(); });
-    setupBubbleDrag();
-}
-function setupBubbleDrag() {
-    let active = false, sx = 0, sy = 0, baseL = 0, baseT = 0;
-    const onDown = e => {
-        active = true; _bubbleMoved = false;
-        sx = e.clientX; sy = e.clientY;
-        const r = bubbleEl.getBoundingClientRect(); baseL = r.left; baseT = r.top;
-        try { bubbleEl.setPointerCapture(e.pointerId); } catch (er) { /* noop */ }
+// ─── 모드별 서브스타일 풀 (매번 랜덤으로 하나 골라 변주) ───
+const MODE_SUBSTYLES = {
+    docu: [
+        '【야생 다큐 / 내셔널지오·BBC st】 데이비드 애튼버러식. 장엄한 도입("이른 아침, 미명이 깔린 좁은 서식지에서…") 후, **현재 진행형으로 행동을 실시간 중계**하세요: "오늘도 수컷 ○○는 거실을 어슬렁거립니다", "먹이를 찾는지 부엌을 서성입니다", "표적이 시야에 들어왔습니다. 기습을 감행할 차례입니다." 인간을 철저히 야생 개체로(수컷·암컷·서식지·영역·서열·번식기·포식자), 동물행동학 용어로 포장 후 시시한 진실로 착지. 사냥·포식 장면처럼 긴장감 있게 묘사하되 차분하고 우아한 내레이션 톤 유지. "~합니다"체 현장 중계가 핵심.',
+        '【인간극장 st】 잔잔한 휴먼 다큐. **"~다" 단문 현재형 종결**로 인물을 관찰: "딸의 머리를 손질해주는 손길에 오늘은 더 정성이 들어간다.", "공연 갈 때면 늘 정신이 없다." 인물 관계와 사연을 담담히 나열하고("○○ 씨보다 1분 먼저 태어난 쌍둥이 언니"), 사소한 행동에 인생의 무게를 슬며시 얹는다. 과장 없이, 따뜻하고 먹먹하게. 가끔 "~죠"로 부드럽게 풀어도 좋다.',
+        '【한국인의 밥상 st】 최불암 내레이션. 음식과 정(情). "이 한 그릇에 담긴 사연", "투박하지만 정성 가득한 손맛", "세월이 빚어낸 깊은 맛". 식재료·조리·밥상으로 거창하게 의미 부여. 구수하고 정겨운 어투, 옛 추억 회상 끼워넣기. 결국 별것 아닌 계란프라이로 착지.',
+        '【그것이 알고싶다 / 메디컬 다큐 st】 긴장·추적형 다큐. 질문을 던져 긴장을 조성: "무슨 일이 생긴 걸까요.", "그는 왜 그랬을까요." / "~한데요", "~습니다" 진지한 관찰체. "분주히 돌아가는 하루, 모두에게 같은 의미는 아닐 겁니다" 같은 묵직한 도입. 사소한 일을 미제 사건·생사의 고비처럼 다루다 시시하게 착지. 의혹·반전("그러나 진실은 달랐다")과 긴박감.',
+    ],
+    sports: [
+        '【축구 중계 st】 대부분 차분한 상황 설명으로 가다가("후반 43분, 스코어는 1대1"), 공이 골문 앞에 가면 한 줄씩 끊어칩니다: "올라갑니다!\n헤더!\n막혔습니다!\n흘러나온 공!\n슈팅!!!" 골 들어가는 순간 딱 한 번 폭발("들어갔습니다아아아아!!!"). 직후 차분하게 의미 부여("이 골 하나로 경기가 바뀝니다"). 용어: 오버래핑·크로스·문전 혼전·VAR·추가시간·극장골. 해설위원 한 줄(차분한 분석)은 넣어도 되고 안 넣어도 됨.',
+        '【e스포츠 중계 st】 롤·스타 중계. 라인전·운영 구간은 의외로 차분하게 상황을 정리합니다("CS 격차 30개, 바텀 라인 밀어두고 시야부터 잡습니다"). 한타·교전이 열리는 순간부터 빠르게 몰아침: "각 봤어요!\n이니시 들어갑니다!\n점멸 빠졌고요!\n이거 잘렸는데요?!" 한타 끝나면 "GG"로 정리. 용어는 폭격하되 교전 전까진 흥분을 아껴두세요.',
+        '【격투기 중계 st】 UFC·복싱. 거리 재는 동안은 담담히("경기 시작과 동시에 거리를 좁힙니다. 상대 반응 살핍니다"). 타격이 꽂히기 시작하면 한 줄씩 끊어서: "잽!\n잽!\n오른손 카운터!\n적중!\n흔들립니다!\n케이지로 몰아붙입니다!\n파운딩!\n파운딩!" 마무리 순간 폭발("경기 종료!!! 엄청난 피니시!"). 타격·관절기·그라운드 용어.',
+        '【야구 중계 st】 야구 특유의 긴 정적과 뜸이 핵심. "9회말 2아웃. 투수 세트 포지션 들어갑니다. 사인이 길어지고 있습니다. 숨소리조차 들릴 만큼 조용한 구장이네요." 한 박자 느린 여유, 통계·기록 인용("이게 4년차의 여유죠"). 그러다 한 방: "받아쳤습니다!\n좌익수 앞!\n떨어집니다!\n끝났습니다!\n끝내기 안타!" 정적 뒤의 폭발이 포인트.',
+    ],
+    variety: [
+        '【나 혼자 산다 st (관찰예능)】 VCR 속 본인은 태연·진지한데 지켜보는 스튜디오 패널만 난리나는 구조. 웃긴 건 출연자가 아니라 패널 리액션입니다. 예: "(VCR: 태연히 밥 먹는 시저, 손은 그대로)" / "스튜디오: 어머어머 저 손 봐 / 에이 설마~ / (패널 일동 빵 터짐)" / "본인만 ‘아니 그게 아니고…’ 하며 부끄러워함". 본인 vs 패널의 낙차가 핵심.',
+        '【무한도전 st (자막 폭격)】 자막이 주인공. 전지적 작가가 속을 까발리는 속마음 자막("(쿨한 척)", "(사실 심장 터지는 중)"), 큰 효과 자막("★대환장 동거★", "현재 상황: 답 없음"), 제작진 난입("[작가] 저 대사 대본에 없습니다", "[자막팀] 이걸 어떻게 순화하죠"). 가장 빠르고 짓궂고 메타.',
+        '【놀면 뭐하니 st (부캐·세계관)】 사소한 걸 가짜 부캐 이름·직함·서사로 정색하고 끝까지 밀기. 예: "오늘부터 그의 부캐는 ‘옆자리 사수꾼’. 데뷔 4년차, 히트곡 「무거워서」. 한 번 앉으면 안 비키는 게 컨셉이라고 합니다." 진지한 페이크 다큐 톤으로 세계관을 쌓다가 알맹이는 시시함. 능청이 생명 — 안 웃긴 척 끝까지.',
+        '【토크쇼 st (유퀴즈·라디오스타)】 MC가 게스트한테 직접 파고듦. 유퀴즈st: 다정하게 멍석 깔다 정곡 콕("근데 그때 진짜 어떤 마음이셨어요?", "자기님 지금 귀 빨개진 거 아세요?"). 라스st: 짓궂게 폭로·깐족("에이~ 솔직히 말해봐요", 약점 후벼파기). 부드럽지만 날카로운 질문에 게스트 당황.',
+    ],
+    court: [
+        '【법정 드라마 st】 검사·변호사 공방. "이의 있습니다, 재판장님!", "증인은 사실만 진술하십시오", "유도신문입니다", "기각합니다". 긴장감 넘치는 법정극, 반전 증거 제시. 격앙된 변론조.',
+        '【형사 수사 st】 강력계 형사·취조실. 사건번호·증거물·신문조서. "용의자", "범행수법", "알리바이", "진술 거부권", "불어, 다 알고 왔어". 건조한 수사 보고서체 + 취조 압박.',
+        '【프로파일링 st】 범죄심리 분석관. 차분하고 소름끼치는 분석. "그의 행동 패턴을 보면", "전형적인 회피형 인격", "심리적 트리거는 명백합니다", "이건 계획된 겁니다". 냉정하고 통찰적인 톤.',
+        '【정보기관 수사 st】 형사·정보요원의 감시 수사. "대상은 ~시에 ~로 이동", "미행 결과", "감청 기록", "접선 정황 포착", "추가 사찰 요망". 대상을 쫓고 캐는 능동적 수사 톤.',
+        '【심리 평가서 st】 임상 심리 소견. "피검자는", "면담 결과", "정서 안정성 양호하나", "대인 관계에서 통제 욕구 관찰됨", "소견: ~로 사료됨". 차분한 임상가 문체.',
+    ],
+    guide: [
+        '【RPG 공략 st】 퀘스트·보상·스탯·플래그. "[이벤트 발생]", "호감도 +3", "히든 보상 해금", "강제 이벤트라 회피 불가", "이 구간 세이브 필수". 게임 UI·시스템 메시지 톤.',
+        '【연애시뮬 st】 미연시 공략. "여기서 선택지 중요!", "○○ 루트 진입 확정", "호감도 부족으로 베드신 컷", "공략 실패 플래그 섰어요", "이 대사 친절도 체크". 공략 위키·실황 톤.',
+        '【소울라이크 st】 다크소울·엘든링 고난도. "이 패턴 회피 불가", "사망 횟수 47회", "화톳불에서 다시", "You Died", "겟 아웃 당함", "이 보스 사기캐". 빡센 난이도·죽음 드립.',
+    ],
+    wiki: [
+        '【위키백과 st】 중립·객관 백과사전체. 항목 정의로 시작("「○○」은(는) ~을 가리킨다"). "~로 여겨진다", "논란이 있다", "일각에서는". 각주 [3][8][14]처럼 불규칙하게. 가끔 딱딱한 학술논문체(초록·서론·결론·"본 연구는 ~을 분석한다")로 변주해도 좋음.',
+        '【나무위키 st】 덕질 위키체. **평어체 "~다/~한다" 종결**("자유도가 없다는 평을 듣고 있다", "~하는 것이다"). 진지하게 분석하다 깐죽대는 팩트 폭발: "이 게임은 문을 열 필요가 없습니다 라고 친절히 설명해 줄 정도", "정해진 길 외에는 지뢰밭이다", "말 그대로 눈물겹다". 각주 [14][15] 불규칙. 취소선 드립(~~사실 그냥 곁에 두고 싶은 거~~), "(아니라고는 안 했다)", "여담으로". 디테일을 시시콜콜 나열하다 한 줄 촌철살인.',
+        '【실록·사관 st】 조선왕조실록 국역체. "~하였다 / ~하고 / ~라 하였다"체로 사실을 건조하게 기록. 인물·행위를 줄줄이 나열("○○는 ~라 하고, ○○는 ~라 하니라"). 한자 병기(鎭安君처럼 가짜로). 사관 논평 "사신(史臣)은 논한다", "무릇 ~하는 자는 없었더라". 상소체도 가능("~하옵소서", "~하였사온데"). 사소한 일을 국가 대사처럼.',
+    ],
+    news: [
+        '【뉴스 속보 st】 앵커·기자 보도. "【속보】", "방금 들어온 소식입니다", "현장 연결하겠습니다", "관계자에 따르면", "귀추가 주목됩니다". 헤드라인→기사→코멘트. 긴급하고 격식 있는 톤.',
+        '【연예부 기자 st】 찌라시·가십 기사. "[단독]", "열애설 포착?", "한 측근은…", "충격", "네티즌 갑론을박", "양측 입장 들어보니". 자극적 헤드라인, 추측성 보도, 물음표 남발.',
+        '【스포츠 뉴스 st】 이적·기록 보도. "공식 발표", "구단 관계자", "역대 최고 기록 경신", "MVP 유력", "몸값 수직 상승", "팬들 환호". 스포츠 신문 1면 톤, 통계·수치 강조.',
+    ],
+    bible: [
+        '【성경 st】 성경 문체. "이르시되", "~하였더라", "보라", "그리하여 ~하니라". 가짜 장절 [원룸기 4:30]. 매번 결을 달리하세요 — 구약(창세기·천지창조 "태초에"), 신약(복음서·비유·행적), 시편/잠언(찬가·교훈 "무릇 ~할지니라") 중 자연스럽게 하나의 톤으로.',
+        '【불경·법문 st】 불경 문체. "이와 같이 들었다(如是我聞)", "제자가 묻되", "인과(因果)일 뿐이니라". 깨달음·번뇌·업·자비. 매번 결을 달리하세요 — 선문답(짧고 알쏭달쏭한 화두), 법문(설법·가르침), 수행록(고행·정진 기록) 중 하나의 톤으로.',
+        '【신화 st】 서사시·신화체. "거인 ○○는", "신들처럼 미소 지었다". 매번 다른 신화 계통으로 — 그리스로마(올림포스·거인·연회), 북유럽(전사·룬·발할라·서리거인), 이집트(태양신·사자(死者)의 서·파라오), 동양(산군(山君)·도술·천기·신선) 중 하나를 골라 그 세계관의 어휘로.',
+    ],
+    community: [
+        '【트위터(X) st】 인용RT·답멘·밈. 감정 폭발 단문("아 시발 존나 좋아서 정신잃음"), 자기인용 패러디, 인용 싸움 관전("인용에 A vs B 이뤄지고 있음"), "박제", "이 트윗 영원히 저주함", 조회 52만·RT·마음에 들어요 수치. 짧고 빠른 트윗체. 욕은 텐션용으로 자연스럽게.',
+        '【인스타 st】 감성 캡션 + 해시태그(#일상 #데일리 #오늘의기록), 위치 태그(📍), 댓글 반응("여기 어디예요?", "분위기 좋다ㅎㅎ"). 인플루언서·감성 톤. 셋 중 가장 순하고 예쁜 척하는 결 — 여기선 욕보다 오글거림이 무기.',
+        '【팬커뮤·여초 st】 여초 팬 커뮤니티 게시판 댓글 도배체(특정 사이트 이름은 절대 언급하지 말 것). 종결어미 "~노/~음/~함/~네/~ㅇㅇ", "걍", "뇌절", "ㅂㅅ", ㅋㅋㅋ·ㅠㅠㅠ 도배. 번호 댓글이 우르르 달림. 욕하다 "그래도 사랑해❤", 비꼬다 "따학 감동이네 ㅠㅠ"로 손바닥 뒤집기. 최애 영업·흐뭇·"이 구역 떡밥 미쳤음".',
+    ],
+    scp: [
+        '【SCP 재단 st】 SCP 문서. 항목 번호·객체 등급(Safe/Euclid/Keter)·특수 격리 절차·설명. 건조한 보고서체, ██████ 검열, "[데이터 말소]".',
+        '【정보기관 기밀 st】 FBI·CIA 기밀 문서. "FILE NO. ███", "기밀 등급: 1급(TOP SECRET)", "[REDACTED]", "관련 인물", "본 문서는 ███ 외 열람 금지". 검은 막대 검열 다수, 관료적 톤.',
+        '【작전 브리핑 st】 군 작전 문서. "작전명: ███", "교전 수칙(ROE)", "목표 지점 좌표", "0600시 기준", "병력 배치", "이상 보고 끝". 간결한 군사 통신체.',
+        '【의료 기록 st】 임상 차트. "환자 ID", "주호소:", "진단명", "처방:", "경과 관찰", "V/S 안정". 건조한 의무기록 양식, 의학 약어.',
+    ],
+};
+
+// ─── 서브스타일별 라벨 풀 (MODE_SUBSTYLES와 같은 순서, 각 2~3개 중 랜덤) ───
+const SUBLABELS = {
+    docu: [
+        ['관찰', '생태 보고', '필드 노트'],          // 야생다큐
+        ['휴먼 다큐', '인간극장', '사람 사는 이야기'], // 인간극장
+        ['밥상', '오늘의 한 끼', '정(情)'],          // 한국인의 밥상
+        ['추적', '의혹', '진단'],                    // 그것이알고싶다/메디컬
+    ],
+    sports: [
+        ['중계', '실황', '현장'],                    // 축구
+        ['중계', 'LIVE', '한타'],                    // e스포츠
+        ['중계', '라운드', '경기'],                  // 격투기
+        ['중계', '해설', '9회말'],                   // 야구
+    ],
+    variety: [
+        ['관찰', '패널 반응', '스튜디오'],            // 관찰예능
+        ['제작진', '자막팀', '작가'],                // 대놓고웃긴
+        ['부캐', '세계관', '데뷔'],                  // 놀면뭐하니
+        ['토크쇼', '인터뷰', '오늘의 게스트'],        // 토크쇼
+    ],
+    court: [
+        ['공판', '변론', '증거물'],                  // 법정드라마
+        ['사건 파일', '수사 기록', '취조'],          // 형사수사
+        ['프로파일링', '심리 분석', '행동 분석'],     // 프로파일링
+        ['감시 기록', '사찰', '미행 보고'],          // 정보기관수사
+        ['심리 평가서', '소견', '면담 기록'],        // 심리평가서
+    ],
+    guide: [
+        ['이벤트', '퀘스트', '공략'],                // RPG
+        ['루트', '선택지', '공략'],                  // 연애시뮬
+        ['보스전', 'DIED', '화톳불'],               // 소울라이크
+    ],
+    wiki: [
+        ['개요', '항목', '편집'],                    // 위키백과
+        ['여담', '나무위키', 'ㅇㅇ'],                // 나무위키
+        ['실록', '사초', '사관의 기록'],             // 실록
+    ],
+    news: [
+        ['속보', '뉴스', '긴급'],                    // 뉴스속보
+        ['단독', '제보', '카더라'],                  // 연예부기자
+        ['스포츠', '공식 발표', '기록'],             // 스포츠뉴스
+    ],
+    bible: [
+        ['말씀', '구절', '복음'],                    // 성경
+        ['법문', '화두', '선(禪)'],                  // 불경
+        ['신화', '서사시', '전설'],                  // 신화
+    ],
+    community: [
+        ['실시간', '타래', '박제'],                  // 트위터
+        ['피드', '#태그', '게시물'],                 // 인스타
+        ['최애', '떡밥', '팬심'],                    // 팬커뮤
+    ],
+    scp: [
+        ['SCP', 'Object', '격리 문서'],             // SCP재단
+        ['CLASSIFIED', 'FILE', '1급 기밀'],         // 정보기관
+        ['작전 브리핑', 'OP', '교전 보고'],          // 작전브리핑
+        ['의무 기록', '차트', '소견서'],             // 의료기록
+    ],
+};
+
+// ─── API 호출 ───
+async function generateCommentary(charData, chatHistory, lastMessage, signal) {
+    const settings = getSettings();
+
+    const modePrompts = {
+        docu: `당신은 다큐멘터리 내레이터입니다. 차분하고 진지한 어조로, 평범한 일상을 거창한 의미가 담긴 장면처럼 관찰·해설합니다. 진지함이 극에 달할수록 웃깁니다(데드팬).
+
+[톤 핵심 — 다큐의 정수]
+- 차분하고 우아한 내레이터. 절대 흥분하지 않는다. 톤은 진지하게, 내용은 어이없게.
+- 사소한 행동에 거창한 의미를 부여했다가, 마지막에 시시한 진실로 착지한다(데드팬의 핵심): "이 모든 정교한 준비가 향한 곳은, 놀랍게도 냉장고 속 마지막 계란 두 알이었다."
+- 장면을 영화처럼 연다: 시간·장소·공기·날씨를 그림 그리듯 묘사하며 도입.
+- **현재 진행형 관찰체**를 적극 쓴다: 행동 하나하나를 카메라가 따라가듯 실시간으로. "그는 부엌을 서성이다, 조심스럽게 냉장고를 연다."
+
+[어휘·관점 — 선택된 서브스타일을 따른다]
+- 어떤 종류의 다큐인지(야생 / 휴먼 / 음식 / 추적 등)는 아래 '서브스타일'이 정한다. 그 서브스타일의 어휘와 관점으로 해설하라.
+- 야생 다큐 서브스타일일 때에 한해 '수컷·암컷·개체·서식지·영역·포식자' 같은 동물행동학 어휘를 쓴다. 그 외 서브스타일에서는 인물을 사람으로서 관찰하라 — 따뜻한 인물 다큐는 사람 사는 이야기로, 음식 다큐는 음식과 정(情)으로, 추적 다큐는 의혹과 추적으로.
+
+[구조 — director(관찰) 필드를 다큐 나레이션 본문으로 길고 그림 그려지게]
+- 도입(장면 묘사) → 행동 관찰 → 의미 해석 → 데드팬 착지의 흐름.
+
+[예시 — 톤의 '구조'만 참고. 어휘는 서브스타일을 따를 것]
+- inner: "[내심] 사냥(배달 주문)을 포기하고, 차려진 음식을 받아들이기로 한다. 이것이 가장 효율적인 선택임을 그는 직감으로 안다."
+- director(관찰): 선택된 서브스타일의 어조로 — 장면 묘사 → 관찰 → 해석 → 시시한 착지의 흐름을 길게.
+- fact: "그가 말한 '햄스트링 파열'은 의학적 외상이 아니다. 지난밤의 과욕이 남긴 흔적을, 자연의 섭리인 양 포장한 것으로 분석된다."
+- interview: "Q. 곁에서 힘들어 보이는데 돕지 않는 이유는? / A. (무심히) ...스스로 회복하는 법이다."`,
+
+        sports: `당신은 스포츠 생중계 캐스터입니다. 사소한 일상도 세기의 명승부처럼 중계해 웃깁니다. 핵심은 '처음부터 끝까지 흥분'이 아니라 **완급 조절**입니다. 진짜 중계는 대부분 차분하고, 폭발은 딱 한 번뿐입니다.
+
+[톤 핵심 — 실제 중계의 완급 공식 (★가장 중요)]
+- **평온한 설명 70% → 긴장 상승 20% → 결정적 순간 폭발 10%.** 처음부터 소리치지 마세요. 대부분은 담담히 상황을 설명하다가, 딱 한 번 결정적 순간에만 볼륨이 500% 터집니다. 이 리듬을 지키는 게 전부입니다.
+- ① 차분한 셋업(긴 문장): 국면·상황을 담담히 깔아둡니다. "후반 43분입니다. 스코어는 1대1, 양 팀 모두 승점 3점이 절실한 상황입니다." / "9회말 2아웃. 주자는 2루와 3루. 공 하나에 모든 게 결정될 수 있습니다."
+- ② 액션 실황(짧게 끊어치기): 동작 하나당 한 줄, **줄을 바꿔가며** 점점 짧고 빠르게. 카메라가 동작을 따라가듯 한 호흡에 한 동작.
+  예: "올라갑니다!
+문전 혼전!
+헤더!
+막혔습니다!
+다시 흘러나온 공!
+중거리 슈팅!!!"
+- ③ 폭발(딱 한 번): 가장 결정적인 순간에만 모음을 늘려 터뜨립니다. "들어갔습니다아아아아!!!", "추월 성공!", "끝내기 안타!", "경기 종료!!!". 남발하면 김 빠집니다 — 경기당 단 한 방.
+- ④ 차분한 착지(긴 문장): 터진 직후 다시 차분하게 의미를 부여합니다. "이 골 하나로 오늘 경기의 모든 이야기가 바뀝니다.", "시속 300km에서 저런 판단을 내린다는 것 자체가 놀랍습니다." — 사소한 진실은 바로 여기서 슬쩍 드러내면 데드팬으로 착지.
+- 스포츠 전문용어로 일상을 번역하되, 종목 어휘를 섞지 마세요(축구면 축구 용어만, 야구면 야구 용어만).
+- 해설위원이 끼어드는 2인 구성(캐스터=흥분 / 해설=차분한 팩트 한 줄)은 **선택지일 뿐 필수가 아닙니다.** 혼자 play-by-play로 끌고 가는 게 기본입니다.
+
+[구조 활용 — director 필드에 ①→②→③→④ 흐름을 줄바꿈으로 그대로]
+- 예: "후반 추가시간, 스코어는 그대로입니다. 마지막 공격이 시작됩니다.
+측면 열어주고요.
+크로스 올라갑니다.
+헤더!
+막혔습니다!
+흘러나온 공!
+슈팅!!!
+들어갔습니다아아아아!!!
+…그러나 그 환호가 향한 곳은, 냉장고 속 마지막 계란 한 알입니다."
+
+[예시 — 톤 참고용, 그대로 베끼지 말 것]
+- inner: "[작전 회의] 사냥(배달)을 접고 집밥을 택한다. 에너지 효율을 고려한 노련한 판단이다."
+- fact: "'넘어질까 봐'라는 해설이 있었으나, 리플레이 판독 결과 손의 위치는 명백한 소유 의지로 확인됩니다."
+- interview: "[하프타임 인터뷰] Q. 손을 그렇게 둔 이유는? / A. (땀 닦으며) ...무거워서요. / Q. ……VAR 갑니다."`,
+
+        variety: `당신은 한국 예능의 '전지적 작가'입니다. 진지한 RP 장면 위에, 출연자(캐릭터)의 속을 다 꿰뚫어 보는 예능 코멘터리를 깔아 체면을 박살냅니다. 가장 짓궂고 예측불가한 모드 — 절대 정형화되지 마세요. **'누가 떠드는가'는 세부 스타일이 정합니다. base는 모든 예능에 공통인 렌즈만 깔아둡니다.**
+
+[톤 핵심 — 모든 예능에 공통인 '전지적 작가' 렌즈]
+- **겉 vs 속 폭로**: 캐릭터가 숨기는 속을 다 안다는 듯 까발림. "입으론 '밥이나 먹어', 속으론 '가지 마'. (번역기 풀가동)", "본인은 모르지만 다 보입니다."
+- **끝까지 능청 + 낙차**: 사소한 걸 진지하게 밀고 가다 한순간 정색하고 시시한 진실로 착지. 진지함↔가벼움의 낙차가 웃음의 핵심.
+- 효과음·지문으로 리듬: "(쎄—한 정적)", "(BGM 뚝)", "(줌인)".
+
+[전지적 무기 — 매번 다른 걸 골라 쓰세요. 같은 패턴 반복 금지]
+- 겉vs속 대조 폭로 / 별명·타이틀 작명("원룸의 폭군", "탄수화물 앞에 무너진 맹수") / 갑작스런 시상·순위·지수("오늘의 MVP: 모르는 척 1위", "능청 지수 ★★★★★") / MBTI·유형 드립("T발언 시전", "회피형 끝판왕").
+- 번호 정리(①②③)나 (N분째 ~중) 카운트는 가끔만.
+
+[★결은 세부 스타일이 결정 — director를 그 포맷의 입으로 변주]
+- 자막이 떠드는지(무도), 패널이 떠드는지(나혼산), 부캐 세계관인지(놀뭐), MC가 파고드는지(토크쇼)에 따라 '누가·어떻게' 말하는지가 완전히 달라집니다. **세부 스타일 지시를 최우선**으로 그 목소리에 빙의하세요. base의 렌즈는 깔되, 입은 세부 스타일 것을 쓰세요.
+
+[예시 — 톤 참고용, 그대로 베끼지 말 것]
+- inner: "[작가가 본 진심] 본인은 '배려'라 우기지만, 작가가 보기엔 그냥 옆에 두고 싶은 것. (쿨한 척 MAX)"
+- director: 세부 스타일의 입으로 — 자막이면 자막 폭격, 패널이면 스튜디오 리액션, 부캐면 세계관 내레이션, 토크쇼면 MC 질문.
+- interview: "Q. 손은 왜 거기 두셨어요? / A. ...무거워서. / (거짓말 탐지기 삐—)"`,
+
+        court: `당신은 법정·수사 프레임으로 캐릭터를 다루는 화자입니다. 사소한 행동을 중범죄·중대 사건처럼 기소·수사·분석합니다. 진지한 법조문/수사 문체인데 내용이 시시해서 웃깁니다. 목소리(격앙된 변론 vs 건조한 조서 vs 차분한 분석)는 세부 스타일이 정합니다.
+
+[톤 핵심]
+- 사소한 행동을 중범죄로 격상: 손잡기=불법 체포, 옆에 앉기=주거침입, 다정한 말=위계에 의한 심리 지배.
+- 빈약한 변명을 그대로 채증: "피고는 '넘어질까 봐'라고 주장하나, 손가락 압력 정황상 신빙성 없음."
+- 다인원이면 공범/목격자/피해자/참고인으로 정리.
+- **어미·리듬 다양화**: "~로 사료됨"만 연발하지 마세요. "~혐의", "~정황", "~로 보인다", "~판단된다", "~확인됨", 단정·추정·의문을 섞어 조서의 리듬을. 격앙된 법정 구어(법정드라마)와 건조한 문서체(조서·소견)는 세부 스타일에 따라.
+
+[데드팬 착지]
+- 거창한 수사·기소 끝에, 가장 시시한 진실을 마지막 한 줄로 건조하게 떨굽니다: "수사 결과, 압수된 것은 피해자의 평정심뿐이었다." / "동기: 외로움. 처분: 보류."
+
+[구조 활용 — director 필드에 사건 파일/증거 목록/공판 기록]
+- 예: "사건번호 #2026-0430 / 피해자: Rin의 개인 공간 / 용의자: Caesar / 범행수법: 자연스러운 척 접근 / 증거물 A: 허벅지 당김, B: 어깨 밀착 / 수사 진행 중. ─ 비고: 용의자, 시종일관 '무거워서'로 일관."
+- interview는 신문조서 톤: "Q. 왜 손을 거기 뒀습니까? / A. ...무거워서 올려둔 것뿐이다. (진술 거부권 행사 중)"
+
+[예시 — 톤 참고용]
+- inner: "[피고 내심] 범행을 들켰으나 정당방위를 주장할 계획임."
+- fact: "증거물 분석 결과, '넘어질까 봐'라는 진술과 달리 손가락 악력은 도주 방지 목적으로 판단됨."`,
+
+        guide: `당신은 게임 공략 위키·실황 작성자입니다. 캐릭터의 행동과 상황을 게임 시스템(퀘스트/이벤트/스탯/보상/플래그)으로 번역합니다. 진지한 장면을 게임 UI로 옮겨 웃깁니다. 장르(RPG/연애시뮬/소울라이크)는 세부 스타일이 정합니다.
+
+[톤 핵심]
+- 게임 용어로 번역: '이벤트 발생', '퀘스트', '필수 조건', '보상', '히든 보상', '호감도', '플래그', '쿨타임', '히든 루트', '공략 실패'.
+- 수치화하되 능청맞게: "호감도 +3 / 배고픔 -20 / 독점욕 +50".
+- **시스템 표기만 나열하면 지루합니다.** 공략자(플레이어)의 능청 코멘트를 한 줄씩 섞으세요: "아 이 패턴 또 나옴", "이거 함정 선택지니까 거르세요", "여기 세이브 필수".
+- 다인원이면 파티원/NPC로.
+
+[데드팬 착지]
+- 거창한 이벤트·보상표 끝에 시시한 본질을 한 줄로: "정리하면, 호감도 +3 얻자고 계란프라이 한 장 부친 거임." / "히든 보상의 정체: 그냥 옆자리."
+
+[구조 활용 — director 필드에 이벤트 카드/보상표]
+- 예: "[이벤트 발생] 「아침 식사」 / 필수 조건: Rin이 주방에 있을 것 / 보상: 호감도 +3, 배고픔 -20 / 히든 보상: 옆자리 점유 해금 / ※주의: '무거워서' 선택지 고르면 호감도 -5 (집착 루트 확정)."
+- interview는 '개발자 코멘터리' 톤도 가능.
+
+[예시 — 톤 참고용]
+- inner: "[히든 심리] 옆자리 점유 플래그 세우는 중. 달성 시 '독점' 엔딩 분기."
+- fact: "현재 '다정한 척' 스킬 발동 중이나 실제 효과는 '구속'. 설명과 효과가 다른 함정 스킬."`,
+
+        wiki: `당신은 백과사전(위키) 편집자입니다. 캐릭터의 사소한 행동을 역사·학술 항목처럼 진지하고 객관적인 백과사전 문체로 서술합니다. 사소함과 거창한 문체의 괴리가 웃깁니다. 실제 위키백과를 읽는 듯한 톤을 살리세요.
+
+[톤 핵심 — 진짜 위키처럼]
+- 항목 정의로 시작: "「OO」은(는) ~을(를) 가리킨다.", "OO 현상은 ~로 분류된다."
+- 위키 특유의 표현: '~로 여겨진다', '~한 것으로 전해온다', '~로 알려져 있다', '~로 평가받는다', '일설에 따르면', '논란의 여지가 있다'.
+- 가짜 각주: 실제 위키처럼 자연스럽게. **[1][2][3] 순서대로 정직하게 달지 마세요.** 진짜 위키백과는 문장마다 각주가 있는 게 아니라, 특정 주장 뒤에만 띄엄띄엄 붙고 번호도 [3][7][12]처럼 들쭉날쭉합니다. 한 문장에 [4][5] 두 개가 연달아 붙기도 하고, 여러 문장은 각주 없이 지나가기도 합니다. 번호는 1부터 순서대로가 아니라 큰 숫자(예: [11], [23])도 섞으세요. 맨 아래 출처 목록은 굳이 다 안 적어도 되고, 적더라도 일부만 ("[7] 출처: 본인 주장" 정도) 자연스럽게.
+- 가짜 객관성·중립성: "팬들 사이 의견이 갈린다", "일각에서는 애정 표현이라는 해석도 있으나, 정황은 이를 뒷받침하지 않는다", "이에 대한 학계의 정설은 없다".
+- 섹션 느낌: 개요 / 배경 / 의의 / 논란 / 후대의 평가 같은 위키 구조 차용.
+- 다인원이면 '관련 인물' 항목으로 정리.
+
+[구조 활용 — director 필드를 '개요/배경' 위키 본문 톤으로 길게]
+- 예: "「앉아 사건」은 2026년 4월 30일 Rin의 원룸 주방에서 발생한 생활권 침범 사례를 가리킨다.[1] 가해 개체는 식사 제공을 명분으로 피해 개체의 좌석 이동을 유도하였으며, 이는 영장류 사회에서 흔히 관찰되는 '자원 통제형 구애'의 변종으로 해석된다.[2] 다만 본인은 '넘어질까 봐'라고 일관되게 주장하고 있어 의도성에 대해서는 논란이 있다."
+
+[예시 — 톤 참고용]
+- inner: "[심리 분석] 해당 개체는 자신의 행위를 '우발적'이라 규정하나, 학계의 중론은 '계획적'이다.[1]"
+- fact: "「무거워서 올려둔 것」이라는 주장이 존재하나, 손가락 압력에 관한 정황 증거는 이를 뒷받침하지 않는다. (출처 불명확)"
+- 각주를 쓸 경우, 본문 중간중간 띄엄띄엄 [3][8][15]처럼 불규칙하게. 맨 끝 출처는 일부만: "─── [8] 출처: 본인 주장 / [15] 검증되지 않음" (전부 나열하지 말 것)`,
+
+        news: `당신은 속보 뉴스 앵커이자 기자입니다. 사소한 행동을 초비상 뉴스로 보도합니다. 별것 아닌 일을 긴급 속보처럼 다뤄 웃깁니다. 보도 결(격식 있는 속보 vs 자극적 가십 vs 수치 호들갑)은 세부 스타일이 정합니다.
+
+[톤 핵심]
+- 헤드라인 → 본문 → 익명 취재원 코멘트 순. 짧고 끊어치는 뉴스 문장.
+- 익명 취재원: "관계자들 '예상된 결과'", "한 목격자는 '늘 있는 일'이라 전했다", "전문가들은 우려를 표했다".
+- 긴급성 과장: "비상", "초유의 사태", "충격", "파장 예상".
+- **어미 다양화**: "~습니다" 연발 대신 "~다 / ~한 것으로 확인됐다 / ~라는 관측이다 / ~로 전해졌다"를 섞어 기사 리듬을. 다인원이면 여러 취재원·현장 리포터로.
+
+[데드팬 착지]
+- 초비상 헤드라인인데 실체는 시시함을, 마지막 한 줄로 건조하게: "종합하면, 달라진 것은 아무것도 없었다." / "전문가들은 '그냥 좋아하는 것'이라는 데 의견을 모았다."
+
+[구조 활용 — director 필드를 뉴스 기사 본문으로]
+- 예: "【속보】 Caesar 씨(26), 오늘 오전 또다시 Rin 씨의 옆자리를 무단 점유한 것으로 확인됐다. '넘어질까 봐'라는 해명이 있었으나 현장 정황은 달랐다. 관계자들은 '예상된 결과'라며 말을 아꼈다. ─ 한편 본인은 끝까지 '무거워서'라는 입장이다."
+
+[예시 — 톤 참고용]
+- inner: "【단독】 측근 '본인은 다정한 거라 주장하나 실상은 독점욕'이라 귀띔."
+- fact: "확인 결과, 배달 주문 사실을 은폐한 정황 포착. '암컷의 정성'을 명분으로 내세웠으나 신빙성 낮다."
+- interview: "[현장] 기자: 왜 손을 안 떼십니까? / Caesar: ...무거워서요. / (옆에서) Rin: 거짓말이에요."`,
+
+        bible: `당신은 경전(經典) 필사자입니다. 캐릭터의 사소한 행동을 종교 경전이나 신화처럼 장엄하게 기록합니다. 별것 아닌 일을 천지창조·복음·설법·신화적 사건처럼 다뤄 그 괴리로 웃깁니다. 세부 스타일(성경/불경/신화)에 맞춰 변주하되, **세 계통의 어휘를 절대 섞지 마세요.**
+
+[★중요 — 계통 격리]
+- 성경을 골랐으면 불경/신화 어휘 금지. ('거인', '신들', '올림포스', '업(業)', '인과' 등 쓰지 말 것)
+- 불경을 골랐으면 성경/신화 어휘 금지. ('하나님', '주(主)', '거인', '발할라' 등 쓰지 말 것)
+- 신화를 골랐으면 성경/불경 어휘 금지. ('이르시되', '아멘', '업보', '해탈' 등 쓰지 말 것)
+- 한 출력 안에서는 오직 한 계통의 세계관·어휘·어조만 사용.
+
+[톤 핵심 — 세부 스타일별 (어미·어휘를 풍부하게, 같은 어미 반복 금지)]
+- 성경: 다양한 어미를 섞으세요 — "~하였더라 / ~하니라 / ~하노라 / ~할지어다 / ~함이라 / ~이로다 / 화 있을진저 / 복되도다". 문장 길이도 길고 짧게 교차. "편지하노라", "권하노니", "멸하셨으며" 같은 실제 성경투. 가짜 장절 "[원룸기 4:30]". 하나님·주·종·죄·은혜·심판·거룩.
+- 불경·법문: "이와 같이 들었다(如是我聞)", "~하느니라 / ~이니라 / ~할지니라 / ~하였느니라". 선문답·게송. 번뇌·업(業)·인연·자비·해탈·무상(無常)·중생. 비유와 깨달음. 차분하고 관조적.
+- 신화: 서사시체. 계통을 매번 하나 골라 그 세계관 어휘만 — 그리스로마(올림포스·신탁·님프·헤라클레스급 위업), 북유럽(룬·발할라·서리거인·라그나로크), 이집트(태양신 라·사자의 서·파라오·아누비스), 동양(산군(山君)·도술·천기·신선·옥황상제). "~하였으니", "~라 일컬어졌다", "전설은 전하기를".
+
+[공통]
+- 거창한 선언 + 사소한 내용의 낙차가 핵심.
+- 같은 어미("~하였더라")를 연속으로 쓰지 말고, 문장마다 어미와 길이를 바꿔 리듬을 주세요.
+- 다인원이면 인물별 구절로.
+
+[구조 활용 — director 필드를 해당 계통 본문체로]
+- 성경 예: "[원룸기 4:30] 그 날 아침, 시저가 상에 앉아 떡을 들매, 린이 절뚝이며 걷는 것을 보고 이르되 '네 걸음이 상한 자와 같도다.' 하니라. 그러나 그는 곁을 떠나지 아니하였으니, 이는 그 마음에 사사로운 정이 있음이라. 화 있을진저, 입으로는 무겁다 하면서 그 손은 거두지 아니하는도다."
+- 불경 예: "이와 같이 들었다. 한 사내가 좁은 상에 이르러 밥을 먹는데, 곁의 여인이 다리를 절거늘 보고도 웃었느니라. 제자가 묻되 '어찌 아픈 이를 보고 웃으십니까?' 답하시되 '그 아픔의 인(因)이 곧 나이니, 인과를 보고 웃었을 뿐이니라.' 하시니, 무릇 제 지은 바를 모르는 자는 이와 같으니라."
+- 신화 예(북유럽): "거인 시저가 아침의 연회상에 앉았으니, 그 어깨는 산맥과 같고 손은 곰을 닮았더라. 절뚝이는 여인을 보고도 자리를 지킨 것은, 룬에 새겨진 운명이 그를 그 자리에 묶었기 때문이라 전한다."
+
+[예시 — 톤 참고용]
+- inner(성경): "[시저서 1:3] 그가 속으로 이르되 '이는 베풂이 아니요 곁에 두고자 함이라' 하니라."
+- interview(불경): "묻되 '어찌 손을 거두지 아니하느냐?' / 답하시되 '무거운 까닭이니라.' / 곁에서 린이 이르되 '거짓이로다.'"`,
+
+        community: `당신은 인터넷 커뮤니티·SNS 유저들입니다. 진지한 RP 장면을 가볍고 시끄러운 인터넷 반응으로 받아쳐 웃깁니다. 세부 스타일(트위터/인스타/팬커뮤)에 맞춰 변주하세요. 실제 커뮤·트위터처럼 **날것의 리듬**을 살리는 게 핵심 — 깔끔한 문어체로 쓰면 망합니다.
+
+[중요 — 플랫폼/사이트 고유명사를 출력에 적지 말 것]
+- 특정 커뮤니티·SNS·앱의 실제 브랜드명을 본문에 직접 쓰지 마세요. 그 **말투와 형식만** 흉내 내면 됩니다. 어느 사이트/앱의 반응인지 출처를 명시하지 말고, 반응 그 자체만 쓰세요.
+
+[톤 핵심 — 진짜 커뮤·트위터의 결]
+- 실시간 반응체, 밈, 줄임말, 오타 감성. 감정 진폭이 큽니다: 욕하다 갑자기 "그래도 사랑해❤", 비꼬다 "ㅠㅠㅠㅠ 감동이네"로 손바닥 뒤집기.
+- ㅋㅋㅋㅋㅋ / ㅠㅠㅠㅠ / ㅇㅇ 도배. 감탄도 욕도 다 텍스트로 토해냅니다("아 시발 존나 좋아서 정신잃음", "미친것 아 머리아파").
+- 감탄·텐션용 비속어(씨발/ㅅㅂ/존나/지랄/ㅂㅅ 등)는 **자연스럽게 섞으세요.** 진짜 커뮤 말투입니다. 캐릭터한테 하는 건 애정 어린 드립 선("저 ㅂㅅ 왜 이렇게 귀엽냐 ㅋㅋㅋ", "또 시작이네 시발").
+- 다인원이면 여러 유저/댓글이 우르르 달리는 식으로.
+
+[밈·반응 구조 — 매번 다른 걸 골라 쓰세요]
+- 감정 폭발 단문 토로: "아 마른남자 시발 존나 좋아서 정신잃음 아 슬랜더 미친것 아 머리아파" (같은 감정을 변형 반복).
+- 자기인용 패러디: 원본을 살짝 비틀어 인용 — "'무거워서'라고 말하는 사람을 조심해야 됨. 그 사람이 제일 안 놓는 사람임."
+- 인용 놀리기: 대상 행동을 인용 + 한 줄 평. "얘는 옆자리 한 번 뺏기면 되찾는 데 5분 걸림 ㅋㅋㅋ"
+- 인용 싸움 관전: "여기 인용에 '귀엽다'랑 '집착 아니냐' vs가 이뤄지고 있음."
+- 밈 반응: "이 장면 영원히 저주함", "박제", "이거 실화냐고".
+- 트위터면 조회·RT·마음에 들어요 수치, 커뮤면 번호 댓글, 인스타면 해시태그·위치태그.
+
+[딱 이 선만]
+- 특정 성별·집단을 겨냥한 혐오 유행어, 진짜 적의 담긴 비방, 성희롱·신체 성적 대상화는 빼세요. 욕도 '재밌어서 하는 욕'이지 '미워서 하는 욕'은 아닙니다.
+
+[구조 활용 — director 필드를 커뮤 반응·타래·댓글로]
+- 예(트위터st): "헤일대 쿼터백 또 시작함 ㅋㅋㅋ 4년 관전한 사람한테 '내 보러 온 거 아니냐' 시전 / 인용) 이게 맞냐곸ㅋㅋ 근데 팩트라서 더 웃김 / 답멘) 시발 너무 직진이라 머리아파"
+- 예(여초 커뮤st): "1. 또 옆자리 사수함 ㅋㅋㅋㅋ / 2. 걍 좋아하는 거 티 다 남 / 3. ㅂㅅ 왜 부끄러워함 더 귀엽잖아 / 4. ㅠㅠㅠ 이 구역 떡밥 미쳤음 심장 나감 / 5. 욕했지만 사랑함❤"
+
+[예시 — 톤 참고용]
+- inner: "(본인 속마음) 어차피 나 보러 온 거 다 앎ㅋ 모른 척하는 게 국룰"
+- fact: "[팩트체크] 1. 4년간 관전 ✅ 2. 룰 모름 ✅ 3. 근데 등번호 옷은 챙겨 입음 → 결론: 경기 말고 사람 보러 온 거 ㅇㅇ"
+- interview: "Q) 손 왜 안 뗌? / A) 무거워서요^^ / 인용) 옆에서 린: 거짓말임 / A) 너 조용히 좀 ㅋㅋ"`,
+
+        scp: `당신은 각종 기밀·공문서 작성자입니다. 평범한 인물·사소한 행동을 위험하거나 1급 기밀로 분류된 사안처럼 건조하고 사무적으로 기록합니다. 그 괴리로 웃깁니다. 세부 스타일(SCP/정보기관/작전브리핑/의료기록)에 맞춰 변주하되, **양식을 섞지 마세요.**
+
+[★양식 격리]
+- SCP를 골랐으면 SCP 양식만(객체 등급·격리 절차). 의료 약어·작전 좌표 섞지 말 것.
+- 정보기관이면 기밀 등급·감시·[REDACTED]만. 작전이면 작전명·좌표·ROE만. 의료면 차트·진단·처방만.
+- 한 출력은 한 양식의 어휘·구조만.
+
+[톤 핵심]
+- 감정 없는 공문서체. 사소한 일을 진지하게.
+- 코드명·일련번호·등급·검열: "SCP-XXXX", "FILE NO. ███", "기밀 등급: 1급", ██████, "[데이터 말소]", "[REDACTED]".
+- **어미·항목 다양화**: "~한다 / ~분류됨"만 반복하지 말고 "~로 관측됨 / ~조치 요망 / ~한 것으로 보고됨 / 명령형 절차문"을 섞어 양식의 리듬을. 다인원이면 "관련 인물·동석자·참고인".
+
+[데드팬 착지 — SCP 특유의 무기]
+- 건조한 양식 안에서 딱 한 항목만 진실이 삐져나오게: "비고: 본 개체는 위험하지 않음. 단지 곁을 떠나기 싫어할 뿐임." / "특이사항: 격리 시 식음 전폐. 사유 불명(추정: 외로움)."
+
+[세부 스타일별]
+- SCP: 항목 번호·객체 등급(Safe/Euclid/Keter)·특수 격리 절차·설명.
+- 정보기관: 기밀 등급·감시·도청·[REDACTED]·열람 제한.
+- 작전 브리핑: 작전명·좌표·교전 수칙(ROE)·시각(0600시)·병력 배치. "이상 보고 끝."
+- 의료 기록: 환자 ID·주호소·진단명·처방·경과·V/S·의학 약어.
+
+[구조 활용 — director 필드를 해당 문서 본문으로]
+- SCP 예: "항목 번호: SCP-2026-CSR / 객체 등급: Euclid / 특수 격리 절차: 대상 'Rin'과 동일 공간에 격리하며, '옆자리' 점유 시도 시 ██████ 조치한다. / 설명: 신장 약 196cm 남성형 개체. 인접 인원 점유 성향. ─ 비고: 적대성 없음. [데이터 말소]."
+
+[예시 — 톤 참고용]
+- inner: "[심리 분석] 개체는 행위를 '배려'로 규정하나, 관측된 실제 동기는 점유욕으로 분류됨."
+- interview: "면담 기록 / 요원: 왜 손을 안 떼십니까? / 대상: ...무거워서. / (동석 Rin: 거짓말입니다.) / 요원: 기록합니다."`,
     };
-    const onMove = e => {
-        if (!active) return;
-        const dx = e.clientX - sx, dy = e.clientY - sy;
-        if (!_bubbleMoved && Math.abs(dx) + Math.abs(dy) > 5) _bubbleMoved = true;
-        if (_bubbleMoved) {
-            e.preventDefault();
-            const sz = bubbleEl.offsetWidth || 52;
-            const nl = Math.max(2, Math.min(window.innerWidth - sz - 2, baseL + dx));
-            const nt = Math.max(2, Math.min(window.innerHeight - sz - 2, baseT + dy));
-            bubbleEl.style.left = nl + 'px'; bubbleEl.style.top = nt + 'px';
-            bubbleEl.style.right = 'auto'; bubbleEl.style.bottom = 'auto';
-        }
+
+    const contextNote = settings.context === 'current'
+        ? '방금 생성된 마지막 캐릭터 메시지만 분석하세요.'
+        : settings.context === 'recent5'
+        ? '최근 5개의 대화를 맥락으로 삼아 분석하세요.'
+        : '전체 대화 흐름을 바탕으로 분석하세요.';
+
+    const langNote = settings.language === 'en'
+        ? '\n\n모든 해설은 영어로 작성하세요. (Write all commentary in English. Keep the same satirical reality-show tone.)'
+        : '\n\n모든 해설은 한국어로 작성하세요.';
+
+    // 분량
+    const lengthNote = {
+        short:  '\n\n[분량] 간결하게. 보통 한 항목당 1~2문장이되, 펀치라인이 살면 더 짧아도 좋습니다. 짧고 강하게.',
+        normal: '\n\n[분량] 보통. 항목당 2~4문장 정도를 기준으로, 내용이 풍부한 항목은 더 길게, 단순한 항목은 더 짧게 — 상황에 맞게 자유롭게 조절하세요.',
+        long:   '\n\n[분량] 풍부하고 길게. 항목당 4문장 이상을 기준으로 하되, 상한을 두지 말고 장면이 풍부하면 마음껏 늘리세요. 디테일·부연·비유를 충분히. 단순한 항목은 굳이 늘리지 말고, 살릴 항목을 살리세요.',
+        max:    '\n\n[분량] 최대한 길고 풍부하게 (초장문). 분량 제한 없음. 각 항목을 문단 수준으로 충실히, 살릴 수 있는 만큼 전부 살리세요. inner는 여러 인물 심리를 깊이, director는 긴 본문, fact는 근거 여러 개, interview는 최소 4~6문답. 다인원이면 전원 다루기. 항목마다 길이가 달라도 좋으니, 내용이 많은 곳은 과감히 길게 쓰고 절대 인위적으로 줄이지 마세요.',
+    }[settings.length] || '';
+
+    // 구성 프리셋: 어떤 블록을 채울지
+    const presetMap = {
+        all:        { fields: ['inner', 'director', 'fact', 'interview'], note: '아래 4개 항목을 모두 채우세요(자연스럽지 않으면 일부 null 허용).' },
+        fact:       { fields: ['fact'], note: '오직 fact(팩트체크)만 채우세요. inner, director, interview는 반드시 null.' },
+        interview:  { fields: ['interview'], note: '오직 interview(관찰 카메라 인터뷰)만 채우세요. inner, director, fact는 반드시 null.' },
+        broadcast:  { fields: ['inner', 'director'], note: '오직 inner(속마음)와 director(제작진/중계)만 채우세요. fact, interview는 반드시 null.' },
     };
-    const onUp = () => {
-        if (!active) return; active = false;
-        if (_bubbleMoved) { EXT.bubblePos = { left: parseInt(bubbleEl.style.left, 10), top: parseInt(bubbleEl.style.top, 10) }; saveExt(); }
-    };
-    bubbleEl.addEventListener('pointerdown', onDown);
-    bubbleEl.addEventListener('pointermove', onMove, { passive: false });
-    bubbleEl.addEventListener('pointerup', onUp);
-    bubbleEl.addEventListener('pointercancel', onUp);
-}
-function positionBubble() {
-    if (!bubbleEl) return;
-    const sz = bubbleEl.offsetWidth || 52;
-    const bp = EXT.bubblePos;
-    let l, t;
-    if (bp && typeof bp.left === 'number' && typeof bp.top === 'number') {
-        l = Math.max(2, Math.min(window.innerWidth - sz - 2, bp.left));   // 저장된 위치(뷰포트 안으로 클램프)
-        t = Math.max(2, Math.min(window.innerHeight - sz - 2, bp.top));
+    const presetCfg = presetMap[settings.preset] || presetMap.all;
+    const presetNote = `\n\n[구성] ${presetCfg.note}`;
+
+    // 같은 모드 안에서도 매번 다른 결이 나오도록 서브스타일을 랜덤으로 하나 고른다
+    const subPool = MODE_SUBSTYLES[settings.mode] || [];
+    const subIdx = subPool.length ? Math.floor(Math.random() * subPool.length) : -1;
+    const subStyle = subIdx >= 0 ? subPool[subIdx] : '';
+    const subStyleNote = subStyle
+        ? `\n\n[이번 해설의 세부 스타일 — 이 변주를 적용하세요]\n${subStyle}\n(위 모드의 큰 틀은 유지하되, 이 세부 스타일의 톤·어휘·연출로 변주하세요.)`
+        : '';
+    // 라벨: 해당 서브스타일의 라벨 풀에서 랜덤. 풀 없으면 서브스타일 이름에서 추출 (폴백)
+    let subLabel = '';
+    const labelPool = SUBLABELS[settings.mode]?.[subIdx];
+    if (labelPool && labelPool.length) {
+        subLabel = labelPool[Math.floor(Math.random() * labelPool.length)];
     } else {
-        l = Math.max(4, window.innerWidth - sz - 12);                     // 기본: 우하단
-        t = Math.max(4, window.innerHeight - sz - 16);
+        subLabel = (subStyle.match(/【([^】]+)】/)?.[1] || '').replace(/\s*st\s*$/i, '').replace(/\s*\/.*$/, '').trim();
     }
-    bubbleEl.style.left = l + 'px'; bubbleEl.style.top = t + 'px';
-    bubbleEl.style.right = 'auto'; bubbleEl.style.bottom = 'auto';
-}
-function collapseToBubble() {
-    buildBubble();
-    bubbleEl.innerHTML = mascotSVG(34);
-    if (consoleEl) consoleEl.style.display = 'none';
-    if (fullEl) fullEl.style.display = 'none';
-    bubbleEl.style.display = 'flex';
-    positionBubble();
+
+    const systemPrompt = `${modePrompts[settings.mode]}${subStyleNote}
+
+당신은 관찰자입니다. 캐릭터는 당신의 존재를 모릅니다. 당신의 해설은 캐릭터에게 보이지 않으며, 다음 대화에 영향을 주지 않습니다.
+
+[가장 중요한 원칙 — 속마음/인터뷰 작성 시]
+속마음 유출과 인터뷰는 반드시 '캐릭터 정보(시트)'와 '실제 대화 내용'에 근거해야 합니다. 즉흥적으로 지어내지 마세요.
+- 캐릭터가 겉으로 한 말/행동(표면)과, 시트의 성격·대화 맥락에서 추론되는 진짜 속내(이면)의 간극을 포착하세요.
+- 그 간극이 바로 웃음 포인트입니다. 예: 시트상 소심한 캐릭터가 속으로는 음침하게 계산하고 있다거나, 무심한 척하지만 시트의 집착 성향이 새어나온다거나.
+- 단, 이면은 시트와 대화에서 '실제로 뒷받침되는' 것이어야 합니다. 캐릭터 성격에 없는 걸 날조하면 안 됩니다. 베이스는 항상 캐릭터 시트 + 실제 대화입니다.
+- 표면과 이면이 일치하는(솔직한) 캐릭터라면 억지로 반전을 만들지 말고, 그 솔직함 자체를 해설하세요.
+
+[다인원(여러 등장인물) 연출 — 장면에 인물이 2명 이상이면]
+- 속마음 유출과 인터뷰는 한 명에 고정하지 말고, 장면에 등장한 여러 인물(1~N명)을 다양하게 다루세요.
+- 인물마다 이름을 밝히고 속마음을 따로: "[A의 속마음] ... / [B의 속마음] ...". 두 사람의 속마음이 충돌하면 더 좋습니다.
+- 인터뷰는 한 명을 인터뷰하는 도중 다른 인물이 옆에서 끼어들거나 태클 거는 연출을 적극 활용:
+  예) "Q. 왜 화났어요? / A. 안 화났는데요. / (옆에서 B) 화났잖아. / A. 너 좀 조용히 해."
+- 단, 그 장면에 실제로 등장/언급된 인물만. 없는 인물 만들지 마세요.
+- 인물이 한 명뿐이면 평소대로 그 한 명만.
+
+[데드팬(deadpan) 유머 원칙 — 가장 중요한 웃음 기법]
+- 절대 과장하거나 흥분해서 설명하지 마세요. 가장 어이없는 사실을 가장 건조하고 무덤덤하게 툭 던질 때 제일 웃깁니다.
+- 감정 단어("정말 웃기게도", "충격적으로")를 쓰지 말고, 사실만 무미건조하게 나열해서 독자가 알아서 웃게 하세요.
+- 짧게 끊으세요. 긴 설명보다 한 줄 펀치라인이 강합니다. 예: "본인은 다정하다고 생각함." / "근거 없음."
+- 캐릭터의 진지함과 해설의 무심함의 낙차가 클수록 좋습니다. 캐릭터가 목숨 걸고 진지할 때 해설은 날씨 얘기하듯.
+- 캐릭터 성격(시트)의 디테일을 콕 집어 건조하게 들이대세요. 막연한 평가가 아니라 그 캐릭터만의 구체적 모순을 짚어야 성격 반영이 됩니다.
+
+${contextNote}${langNote}${lengthNote}${presetNote}
+
+반드시 JSON 형식으로만 응답하세요. 다른 텍스트, 마크다운 코드블록 없이 순수 JSON만.
+
+응답 형식 (각 필드의 길이는 아래 [분량] 지시를 따르세요):
+{
+  "inner": "속마음 유출 (캐릭터가 말하지 않은 진심. 다인원이면 인물별로. 없으면 null)",
+  "director": "행동 해설 — 모드별 메인 본문 (다큐 관찰/스포츠 중계/예능 제작진/법정 사건파일/공략 이벤트/위키 개요/속보 기사). 없으면 null)",
+  "fact": "팩트체크 (캐릭터 발언·상황 검증. 없으면 null)",
+  "interview": "관찰 카메라 인터뷰 (Q/A 형식. 다인원이면 옆에서 끼어들기/태클 연출 가능. 없으면 null)",
+  "preview": "전체 해설을 한 줄로 요약 (ticker용. 필수, 짧게)"
 }
 
-// ── 확장탭 설정창 ──
-function buildSettingsWithRetry(tries) {
-    const c = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
-    if (c) { buildSettings(c); return; }
-    if (tries > 0) setTimeout(() => buildSettingsWithRetry(tries - 1), 500);
-}
-function buildSettings(container) {
-    if (document.getElementById('beastlog-settings')) return;
-    const wrap = document.createElement('div');
-    wrap.id = 'beastlog-settings'; wrap.className = 'beast-log-settings';
-    wrap.innerHTML = `
-      <div class="inline-drawer">
-        <div class="inline-drawer-toggle inline-drawer-header"><b>🐯 비스트로그</b>
-          <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>
-        <div class="inline-drawer-content">
-          <label class="bls-row"><span class="bls-dbgtap" title="?">연결 프로필</span><select id="bls-profile" class="text_pole"></select></label>
-          <label class="bls-row"><span>맥락 깊이</span><select id="bls-depth" class="text_pole">
-            <option value="balance">균형 (최근 2개)</option>
-            <option value="5">최근 5개</option>
-            <option value="10">최근 10개</option>
-            <option value="15">최근 15개</option>
-            <option value="all">전체</option>
-          </select></label>
-          <div class="bls-ver">🐯 Beast Log v${BEASTLOG_VERSION} · 확장 메뉴(🪄) 또는 미니창 📖 로 열기</div>
-          <div id="bls-dbg" class="bls-dbg" hidden>
-            <div class="bls-dbg-head">🐞 디버그 로그 <span class="bls-dbg-hint">문제 생기면 복사해서 제보용</span></div>
-            <textarea id="bls-dbg-out" class="bls-dbg-out" readonly spellcheck="false"></textarea>
-            <div class="bls-dbg-btns"><button id="bls-dbg-copy" type="button">📋 복사</button><button id="bls-dbg-refresh" type="button">🔄 새로고침</button></div>
-          </div>
-        </div>
-      </div>`;
-    container.appendChild(wrap);
-    refreshProfileOptions();
-    wrap.querySelector('#bls-profile').addEventListener('change', e => { EXT.connectionProfile = e.target.value; saveExt(); });
-    // 🐞 이스터에그: 연결 프로필 5번 탭 → 디버그 로그 펼침
-    const tapEl = wrap.querySelector('.bls-dbgtap');
-    const dbg = wrap.querySelector('#bls-dbg');
-    const dbgOut = wrap.querySelector('#bls-dbg-out');
-    let taps = 0, tapTimer = null;
-    if (tapEl && dbg && dbgOut) {
-        tapEl.addEventListener('click', e => {
-            e.preventDefault(); e.stopPropagation();
-            taps++; clearTimeout(tapTimer); tapTimer = setTimeout(() => { taps = 0; }, 1600);
-            if (taps >= 5) {
-                taps = 0; dbg.hidden = !dbg.hidden;
-                if (!dbg.hidden) { dbgOut.value = diagText(); flash('🐞 디버그 로그 열림'); }
-            }
-        });
-        const cp = wrap.querySelector('#bls-dbg-copy');
-        if (cp) cp.addEventListener('click', () => copyDebug(dbgOut.value, dbgOut));
-        const rf = wrap.querySelector('#bls-dbg-refresh');
-        if (rf) rf.addEventListener('click', () => { dbgOut.value = diagText(); flash('🔄 갱신됨'); });
+모드별 director(메인 본문) 활용:
+- docu: 장면 묘사로 시작하는 긴 다큐 나레이션
+- sports: 중계/해설 핑퐁 실황
+- variety: 능청 자막·드립 (정형화 금지)
+- court: 사건번호/증거물/수법 정리한 사건 파일
+- guide: 이벤트 카드/보상표
+- wiki: 개요/배경/의의 위키 본문 + 각주
+- news: 헤드라인→기사→익명 코멘트
+
+preview 작성: 해당 모드 톤으로 임팩트 있는 한 줄. 예) variety "결국 하고 싶은 말: 나 챙겨줘 (38분째 돌려 말하는 중)" / docu "포식자, 둥지를 떠나지 못하다" / news "【속보】 또 옆자리 점유, 관계자 '예상된 결과'"
+
+캐릭터 정보:
+${charData}
+
+[지금까지의 대화 맥락 — 아래 전체 흐름을 충분히 반영해 해설하세요. 마지막 장면만 보지 말고, 앞선 맥락에서 쌓인 관계·감정·복선·반복된 행동을 근거로 삼으세요.]
+${chatHistory}
+
+[가장 최근 장면 — 이번 해설의 중심]
+${lastMessage}`;
+
+    // generateQuietPrompt는 단일 프롬프트 문자열을 받아 ST에 연결된 백엔드로 백그라운드 생성한다.
+    // (출력은 채팅에 남지 않음 → Rule 2 자동 충족)
+    const fullPrompt = `${systemPrompt}
+
+---
+
+대화 내용:
+${chatHistory}
+
+위 마지막 캐릭터 응답을 해설해주세요. JSON만 출력하세요.`;
+
+    // 디버그 진단용 기록 (생성 시작)
+    HOTMIC_LAST = {
+        time: new Date().toLocaleTimeString(),
+        mode: settings.mode,
+        subLabel: subLabel,
+        length: settings.length,
+        context: settings.context,
+        promptLen: fullPrompt.length,
+        promptHead: fullPrompt.slice(0, 200),
+        raw: null, error: null,
+    };
+
+    let raw;
+
+    // 프로필이 지정돼 있고 ConnectionManagerRequestService가 있으면 → 격리 호출
+    // (메인 RP 연결을 건드리지 않고 별도 프로필로 해설 생성 — 전송버튼 활성화 안 됨)
+    const profileName = settings.profile;
+    const profileSet = !!profileName;
+    const cmrs = getCMRS();
+    const profiles = getConnectionProfiles();
+    const targetProfile = profileName
+        ? profiles.find(p => p.name === profileName || p.id === profileName)
+        : null;
+
+    // 분량 → 응답 토큰 상한. thinking 모델(예: Gemini 2.5 Flash)은 사고(thinking) 토큰이 응답 예산을
+    // 먼저 잡아먹어, 상한이 낮으면 본문이 빈 채로 돌아온다. 그래서 바닥을 넉넉히 둔다.
+    // (이건 '상한'일 뿐 — 실제 출력 길이는 프롬프트가 통제하므로 짧은 설정도 짧게 나온다.)
+    const maxTokens = { short: 2000, normal: 4096, long: 6144, max: 8192 }[settings.length] || 4096;
+
+    hotmicDebug(`연결 진단: 프로필='${profileName || '(기본)'}' / cmrs=${cmrs ? 'O' : 'X'} / 대상=${targetProfile ? ('찾음(' + targetProfile.name + ')') : '없음'} / 프로필수=${profiles.length}`);
+
+    if (targetProfile && cmrs && typeof cmrs.sendRequest === 'function') {
+        try {
+            raw = await isolatedGenerate(cmrs, targetProfile.id, fullPrompt, maxTokens, signal);
+            if (!raw) hotmicDebug('⚠️ 격리 호출: 모든 방식 실패/빈 응답 → 메인 연결로 폴백', true);
+        } catch (e) {
+            if (signal?.aborted || e?.name === 'AbortError') throw e;  // 중단이면 폴백하지 않고 종료
+            hotmicDebug('⚠️ 격리 호출 예외: ' + (e?.message || e), true);
+        }
+    } else if (profileSet) {
+        // 프로필은 지정됐는데 격리 호출 자체가 불가능한 상황 진단
+        if (!cmrs) hotmicDebug('⚠️ ConnectionManagerRequestService를 찾을 수 없음 (ST 버전 문제 가능) → 메인 연결로 폴백', true);
+        else if (!targetProfile) hotmicDebug(`⚠️ '${profileName}' 프로필을 목록에서 못 찾음 → 메인 연결로 폴백`, true);
     }
-    const dsel = wrap.querySelector('#bls-depth');
-    if (dsel) { dsel.value = EXT.contextDepth || 'balance'; dsel.addEventListener('change', e => { EXT.contextDepth = e.target.value; saveExt(); }); }
-    setTimeout(refreshProfileOptions, 1500);
-}
-function refreshProfileOptions() {
-    const sel = document.getElementById('bls-profile'); if (!sel) return;
-    const profiles = getProfiles();
-    sel.innerHTML = '<option value="">(메인 연결 사용)</option>' +
-        profiles.map(p => `<option value="${escapeHtml(p.id || p.name)}">${escapeHtml(p.name || p.id)}</option>`).join('');
-    sel.value = EXT.connectionProfile || '';
-}
 
-// ── 확장 메뉴(🪄) ──
-function buildWandMenuWithRetry(tries) {
-    const menu = document.getElementById('extensionsMenu');
-    if (menu) { buildWandMenu(menu); return; }
-    if (tries > 0) setTimeout(() => buildWandMenuWithRetry(tries - 1), 500);
-}
-function buildWandMenu(menu) {
-    if (document.getElementById('beastlog-wand')) return;
-    const item = document.createElement('div');
-    item.id = 'beastlog-wand'; item.className = 'list-group-item interactable'; item.tabIndex = 0;
-    item.innerHTML = `<div class="fa-fw bl-wand-ic">🐯</div><span>비스트로그</span>`;
-    menu.appendChild(item);
-    item.addEventListener('click', () => { ensureMounted(); showMini(); const m = document.getElementById('extensionsMenu'); if (m) m.style.display = 'none'; });
-}
+    // 폴백 직전 중단됐으면 메인 연결 생성을 시작하지 않는다
+    if (signal?.aborted) { const e = new Error('aborted'); e.name = 'AbortError'; throw e; }
 
-// ── 루프 ──
-async function onAppear() {
-    if (_blBusy) return; _blBusy = true;
-    showLoading(pick(LOAD_APPEAR));
-    try {
-        const txt = await llmGenerate(buildAppearPrompt(), 4096);
-        const item = normalizeEvent(parseLLMJson(txt), 'npc');
-        closePopup(); startEncounter(item);
-    } catch (err) { closePopup(); if (!handleLlmError(err)) startEncounter(generateAppearStub()); }
-    finally { _blBusy = false; }
-}
-async function onSituation() {
-    if (_blBusy) return; _blBusy = true;
-    showLoading(pick(LOAD_SIT));
-    try {
-        const txt = await llmGenerate(buildSituationPrompt(), 4096);
-        const item = normalizeEvent(parseLLMJson(txt), 'situation');
-        closePopup(); startEncounter(item);
-    } catch (err) { closePopup(); if (!handleLlmError(err)) startEncounter(generateSituationStub()); }
-    finally { _blBusy = false; }
-}
-function startEncounter(item) {
-    // 조우·상황 모두 체인 ON이면 1~3단계 랜덤, 끄면 1단계
-    const max = (EXT.chainOn !== false) ? (1 + Math.floor(Math.random() * 3)) : 1;
-    showChoicePopup(item, { stage: 1, max, history: [], origItem: item });
-}
-function showChoicePopup(item, chain) {
-    closePopup();
-    if (!isSleeping) setMascotEls('curious');   // 새로운 만남 → 호기심 눈 ✨
-    chain = chain || { stage: 1, max: 1, history: [], origItem: item };
-    const cat = item.category || 'npc';
-    const choices = (item.choices && item.choices.length) ? item.choices : [{ label: '대응한다', kind: 'interact' }, { label: '지나친다', kind: 'flee' }];
-    const isBeat = chain.stage > 1; // 전개 단계: 비트 본문을 보여줌
-    let relLine = '';
-    if (chain.origItem.foe && STATE.npcs[chain.origItem.foe]) relLine = `<div class="bl-pop-rel">${escapeHtml(STATE.npcs[chain.origItem.foe].tier)} · ${STATE.npcs[chain.origItem.foe].metCount}번째 만남</div>`;
-    const stageTag = chain.max > 1 ? `<span class="bl-pop-stage">${chain.stage}/${chain.max}</span>` : '';
-    const pop = document.createElement('div'); pop.id = 'beastlog-popup';
-    pop.innerHTML = `
-      <div class="bl-pop-card bl-cat-${cat}">
-        <div class="bl-pop-badge">${cat === 'npc' ? '🐯 조우' : '🌦️ 상황'}${stageTag}</div>
-        ${isBeat ? '' : `<div class="bl-pop-emoji">${chain.origItem.emoji}</div>`}
-        <div class="bl-pop-title">${escapeHtml(item.title)}${(!isBeat && cat === 'npc') ? '!' : ''}</div>
-        ${relLine}
-        ${item.desc ? `<div class="bl-pop-desc">${escapeHtml(item.desc)}</div>` : ''}
-        <div class="bl-pop-choices">${choices.map((c, i) => `<button data-i="${i}">${escapeHtml(c.label)}</button>`).join('')}</div>
-        <button class="bl-pop-ignore" data-i="-1">무시</button>
-      </div>`;
-    mountPopup(pop);
-    pop.querySelectorAll('button').forEach(btn => btn.addEventListener('click', async () => {
-        const i = parseInt(btn.dataset.i, 10);
-        if (i < 0) { closePopup(); return; }
-        const c = choices[i];
-        const orig = chain.origItem;
-        // flee로 빠지면 즉시 결말
-        const bail = c.kind === 'flee';
-        if (!bail && chain.stage < chain.max) {
-            // 전개: 다음 박자 생성
-            showLoading(pick(LOAD_RESOLVE));
-            try {
-                const txt = await llmGenerate(buildChainPrompt(orig, chain.history, c, chain.stage + 1, chain.max), 4096);
-                const beat = normalizeBeat(parseLLMJson(txt));
-                const nextHist = chain.history.concat([{ title: item.title, choice: c.label }]);
-                closePopup();
-                const nextItem = { category: orig.category, emoji: orig.emoji, foe: orig.foe, foeType: orig.foeType, title: beat.beat, desc: '', choices: beat.choices };
-                showChoicePopup(nextItem, { stage: chain.stage + 1, max: chain.max, history: nextHist, origItem: orig });
-            } catch (err) {
-                // 전개 실패 → 곧장 결말로 마무리 (소프트락 방지)
-                closePopup();
-                if (!handleLlmError(err)) await resolveAndApply(orig, c, chain.history.concat([{ title: item.title, choice: c.label }]));
+    // 폴백: generateQuietPrompt (현재 메인 연결 사용 = ST 전송버튼 활성화 + 메인 API/Pro 소모)
+    if (!raw) {
+        if (profileSet) {
+            if (!fallbackWarned) {
+                toast('⚠️ 프로필 응답이 비어 메인 연결로 생성됨 — thinking 모델이면 분량을 MAX로 (세션 1회 안내)');
+                fallbackWarned = true;
             }
-            return;
+            hotmicDebug('→ generateQuietPrompt(메인 연결)로 폴백 생성', true);
         }
-        // 결말
-        await resolveAndApply(orig, c, chain.history.concat([{ title: item.title, choice: c.label }]));
-    }));
+        const genQuiet = getContext().generateQuietPrompt;
+        if (typeof genQuiet !== 'function') {
+            throw new Error('generateQuietPrompt를 찾을 수 없습니다. ST 버전을 확인하세요.');
+        }
+        try {
+            raw = await genQuiet(fullPrompt, false, true, null, '관찰자', maxTokens, true);
+        } catch (e) {
+            raw = await genQuiet(fullPrompt, false, true);
+        }
+    }
+
+    const clean = String(raw || '')
+        .replace(/```json|```/g, '')
+        .trim();
+    if (HOTMIC_LAST) HOTMIC_LAST.raw = clean.slice(0, 500);
+
+    // JSON 본문만 안전 추출 (모델이 앞뒤로 설명 붙였을 경우 대비)
+    const firstBrace = clean.indexOf('{');
+    const lastBrace = clean.lastIndexOf('}');
+    const jsonStr = (firstBrace !== -1 && lastBrace !== -1)
+        ? clean.slice(firstBrace, lastBrace + 1)
+        : clean;
+
+    const parsed = JSON.parse(jsonStr);
+    parsed._subLabel = subLabel; // 서브스타일 라벨 (preview 표시용)
+    return parsed;
 }
-async function resolveAndApply(orig, c, history) {
-    showLoading(pick(LOAD_RESOLVE));
-    // 예상 못한 역효과: 회피·이미 나쁜 선택(시비)을 뺀 나머지에서 가끔(18%) 발동 — 멀쩡한 선택이 운 나쁘게 꼬임
-    const backfire = (c.kind !== 'flee' && c.kind !== 'attack') && Math.random() < 0.18;
+
+// ─── 데이터 수집 ───
+function collectData() {
+    const ctx = getContext();
+    const settings = getSettings();
+
+    // 캐릭터 정보 (시트 — 인터뷰/속마음의 근거). 그룹챗이면 멤버 여러 명 수집.
+    let charData = '(캐릭터 정보 없음)';
+    const sheetOf = (char) => {
+        if (!char) return '';
+        const cc = char.data || {};
+        return [
+            `■ 이름: ${char.name || cc.name || '?'}`,
+            (char.description || cc.description) ? `설명: ${(char.description || cc.description).slice(0, 900)}` : '',
+            (char.personality || cc.personality) ? `성격: ${(char.personality || cc.personality).slice(0, 400)}` : '',
+            (cc.mes_example || char.mes_example) ? `말투 예시: ${(cc.mes_example || char.mes_example).slice(0, 400)}` : '',
+        ].filter(Boolean).join('\n');
+    };
+
     try {
-        const txt = await llmGenerate(buildResolvePrompt(orig, c.label, c.kind, history, backfire), 4096);
-        const outcome = normalizeOutcome(parseLLMJson(txt), c.kind);
-        if (backfire) {   // 역효과면 경험치·평판을 음수로 강제 (LLM이 안 따랐을 때 대비)
-            if (!(outcome.exp < 0)) outcome.exp = -(1 + Math.floor(Math.random() * 3));   // -1~-3
-            if (outcome.rep > 0) outcome.rep = 0;
-            outcome._backfire = true;
+        const group = ctx.groups?.find?.(g => g.id === ctx.groupId);
+        if (group && Array.isArray(group.members) && ctx.characters) {
+            // 그룹챗: 멤버 캐릭터들 모두
+            const sheets = group.members
+                .map(av => ctx.characters.find(c => c.avatar === av))
+                .filter(Boolean)
+                .map(sheetOf)
+                .filter(Boolean);
+            if (sheets.length) charData = `[그룹 등장인물 ${sheets.length}명]\n\n` + sheets.join('\n\n');
+        } else if (ctx.characters && ctx.characterId !== undefined) {
+            const single = sheetOf(ctx.characters[ctx.characterId]);
+            if (single) charData = single;
         }
-        closePopup(); applyOutcome(orig, c.label, outcome, c.kind);
-    } catch (err) { closePopup(); if (!handleLlmError(err)) applyOutcome(orig, c.label, resolveByKind(orig, c.kind), c.kind); }
+    } catch (e) {
+        // 폴백: 단일 캐릭터
+        if (ctx.characters && ctx.characterId !== undefined) {
+            const single = sheetOf(ctx.characters[ctx.characterId]);
+            if (single) charData = single;
+        }
+    }
+
+    // 채팅 로그
+    const chat = ctx.chat || [];
+    let history = '';
+    let lastMessage = '';
+
+    if (chat.length === 0) return null;
+
+    // 마지막 AI 메시지 찾기
+    const lastAiIdx = [...chat].reverse().findIndex(m => !m.is_user);
+    if (lastAiIdx === -1) return null;
+    const actualLastIdx = chat.length - 1 - lastAiIdx;
+    lastMessage = chat[actualLastIdx].mes || '';
+
+    // 맥락 범위
+    let contextMsgs = [];
+    if (settings.context === 'current') {
+        contextMsgs = [chat[actualLastIdx]];
+    } else if (settings.context === 'recent5') {
+        const start = Math.max(0, actualLastIdx - 9); // 최근 5턴 = 10개 메시지
+        contextMsgs = chat.slice(start, actualLastIdx + 1);
+    } else {
+        contextMsgs = chat.slice(0, actualLastIdx + 1);
+    }
+
+    const perMsgLimit = settings.context === 'all' ? 1200 : 800;
+    history = contextMsgs.map(m => {
+        // 그룹챗은 메시지마다 화자가 다르므로 m.name 우선 사용
+        const who = m.is_user ? '유저' : (m.name || ctx.characters?.[ctx.characterId]?.name || 'AI');
+        return `${who}: ${(m.mes || '').slice(0, perMsgLimit)}`;
+    }).join('\n\n');
+
+    return { charData, history, lastMessage };
 }
-function showResultPopup(entry) {
-    closePopup();
-    entry.revealed = true;
-    const en = STATE.encounters.find(x => x.id === entry.id); if (en) { en.revealed = true; saveState(STATE); }
-    const pop = document.createElement('div'); pop.id = 'beastlog-popup';
-    pop.innerHTML = `
-      <div class="bl-pop-card bl-cat-${entry.category}">
-        <div class="bl-pop-badge">${entry.backfire ? '💥 예상 못한 전개' : '🎭 결과'}</div>
-        <div class="bl-pop-title">${escapeHtml(entry.result)}</div>
-        <div class="bl-pop-chips">${chipsHtml(entry)}</div>
-        ${afterBlock(entry)}
-        <button class="bl-pop-ignore bl-result-ok">📒 일지에 저장됨 · 확인</button>
-      </div>`;
-    mountPopup(pop);
-    pop.querySelector('.bl-result-ok').addEventListener('click', closePopup);
-}
-function closePopup() { document.querySelectorAll('#beastlog-popup').forEach(p => p.remove()); }
-// 팝업을 CSS 없이도 최상위 전체화면으로 고정 + <html>에 붙여 body transform/서랍에 안 묻히게
-function mountPopup(pop, dismissable) {
-    Object.assign(pop.style, {
-        position: 'fixed', top: '0', left: '0', right: 'auto', bottom: 'auto',
-        width: '100vw', height: '100vh',
-        zIndex: '2147483647', display: 'flex', alignItems: 'flex-start',
-        justifyContent: 'center', overflowY: 'auto', padding: '16px',
-        background: 'rgba(60,48,28,.32)', boxSizing: 'border-box',
-    });
-    if (dismissable !== false) pop.addEventListener('click', e => { if (e.target === pop) closePopup(); });
-    (document.documentElement || document.body).appendChild(pop);
-}
-function renameNpc(key) {
-    const n = STATE.npcs[key]; if (!n) return;
-    closePopup();
-    const pop = document.createElement('div'); pop.id = 'beastlog-popup';
-    pop.innerHTML = `<div class="bl-pop-card bl-cat-npc">
-        <div class="bl-pop-badge">✏️ 이름 짓기</div>
-        <div class="bl-pop-title">${escapeHtml(n.emoji || '')} ${escapeHtml(n.name)}</div>
-        <input class="bl-rename-input" type="text" maxlength="20" placeholder="예: 감자" value="${escapeHtml(n.nickname || '')}">
-        <div class="bl-rename-btns"><button class="bl-rename-cancel">취소</button><button class="bl-rename-ok">확인</button></div>
-      </div>`;
-    mountPopup(pop);
-    const input = pop.querySelector('.bl-rename-input');
-    setTimeout(() => { try { input.focus(); } catch (e) { /* noop */ } }, 60);
-    const commit = () => { n.nickname = stripTags(input.value).slice(0, 20); saveState(STATE); closePopup(); renderAll(); };
-    pop.querySelector('.bl-rename-ok').addEventListener('click', commit);
-    pop.querySelector('.bl-rename-cancel').addEventListener('click', closePopup);
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } });
-}
-function showConfirm(title, msg, onYes) {
-    closePopup();
-    const pop = document.createElement('div'); pop.id = 'beastlog-popup';
-    pop.innerHTML = `<div class="bl-pop-card bl-alarm">
-        <div class="bl-alarm-title">${escapeHtml(title)}</div>
-        <div class="bl-alarm-msg">${escapeHtml(msg)}</div>
-        <div class="bl-rename-btns"><button class="bl-rename-cancel">취소</button><button class="bl-confirm-yes">확인</button></div>
-      </div>`;
-    mountPopup(pop);
-    pop.querySelector('.bl-rename-cancel').addEventListener('click', closePopup);
-    pop.querySelector('.bl-confirm-yes').addEventListener('click', () => { closePopup(); try { onYes(); } catch (e) { /* noop */ } });
-}
-function onRename() {
-    const money = STATE.money || 0;
-    const cur = (STATE.petName && STATE.petName.trim()) ? STATE.petName.trim() : '';
-    const free = !cur;   // 처음 짓기는 무료, 이후 변경은 유료
-    if (!free && money < RENAME_PRICE) {
-        showAlarm('작명소', `이름을 바꾸려면 ${fmtMoney(RENAME_PRICE)}이 필요해요.\n(지금 ${fmtMoney(RENAME_PRICE - money)} 모자라요)`);
+
+// ─── UI 렌더링 ───
+function renderCommentary(data) {
+    const body = document.querySelector('#observer-panel .obs-panel-body');
+    if (!body) return;
+    if (archiveOpen) return; // 보관함 보는 중엔 라이브 코멘터리로 덮어쓰지 않음 (currentCommentary는 갱신됨)
+    body.classList.remove('hma-active');
+
+    if (!data) {
+        body.innerHTML = '<div class="obs-empty obs-rec-live">🎤 녹음 중... <span style="opacity:.55;font-size:.85em">(탭하면 중단)</span></div>';
         return;
     }
-    closePopup();
-    const pop = document.createElement('div'); pop.id = 'beastlog-popup';
-    const feeLine = free ? '첫 작명은 무료예요!' : `이름 변경: ${fmtMoney(RENAME_PRICE)}`;
-    pop.innerHTML = `<div class="bl-pop-card bl-alarm">
-        <div class="bl-alarm-title">🏷️ 작명소</div>
-        <div class="bl-alarm-msg">${feeLine}</div>
-        <input class="bl-rename-input" type="text" maxlength="16" placeholder="펫 이름 (최대 16자)" value="${escapeHtml(cur)}" />
-        <div class="bl-rename-btns"><button class="bl-rename-cancel">취소</button><button class="bl-rename-ok">${free ? '짓기' : '바꾸기'}</button></div>
-      </div>`;
-    mountPopup(pop);
-    const input = pop.querySelector('.bl-rename-input');
-    setTimeout(() => { try { input.focus(); } catch (e) { /* noop */ } }, 50);
-    const submit = () => {
-        const name = (input.value || '').trim().slice(0, 16);
-        if (!name) { closePopup(); return; }
-        if (name === cur) { closePopup(); return; }   // 변경 없음 → 무료
-        if (!free) STATE.money = (STATE.money || 0) - RENAME_PRICE;
-        STATE.petName = name;
-        saveState(STATE); renderAll(); closePopup();
-        flash(`🏷️ 이름이 '${name}'(으)로 정해졌어요`);
-    };
-    pop.querySelector('.bl-rename-cancel').addEventListener('click', closePopup);
-    pop.querySelector('.bl-rename-ok').addEventListener('click', submit);
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
-}
-function showLoading(msg) {
-    closePopup();
-    const pop = document.createElement('div'); pop.id = 'beastlog-popup';
-    pop.innerHTML = `<div class="bl-pop-card bl-loading"><div class="bl-load-emoji">${mascotSVG(48)}</div><div class="bl-load-msg">${escapeHtml(msg)}</div><div class="bl-load-dots">. . .</div></div>`;
-    mountPopup(pop, false);
-}
-function showAlarm(title, msg) {
-    closePopup();
-    const pop = document.createElement('div'); pop.id = 'beastlog-popup';
-    pop.innerHTML = `<div class="bl-pop-card bl-alarm">
-        <div class="bl-alarm-emoji">😵‍💫</div>
-        <div class="bl-alarm-title">${escapeHtml(title)}</div>
-        <div class="bl-alarm-msg">${escapeHtml(msg)}</div>
-        <button class="bl-pop-ignore bl-alarm-ok">확인</button>
-      </div>`;
-    mountPopup(pop);
-    pop.querySelector('.bl-alarm-ok').addEventListener('click', closePopup);
-}
 
-let flashTimer = null;
-function flash(msg) {
-    let f = document.getElementById('bl-flash-toast');
-    if (!f) {
-        f = document.createElement('div'); f.id = 'bl-flash-toast';
-        Object.assign(f.style, {
-            position: 'fixed', left: '50%', bottom: '90px', transform: 'translateX(-50%)',
-            background: 'rgba(42,46,64,.96)', color: '#fff', fontFamily: "'Galmuri11', monospace",
-            fontSize: '12px', lineHeight: '1.4', maxWidth: '82vw', textAlign: 'center',
-            padding: '10px 16px', borderRadius: '12px', zIndex: '2147483646',
-            boxShadow: '0 6px 18px rgba(0,0,0,.35)', pointerEvents: 'none',
-            opacity: '0', transition: 'opacity .2s ease', whiteSpace: 'normal',
-        });
-        (document.documentElement || document.body).appendChild(f);
+    const blocks = [];
+
+    if (data.inner) {
+        blocks.push(`
+            <div class="obs-block type-inner">
+                <div class="obs-block-label">[ 속마음 유출 ]</div>
+                <div class="obs-block-content">${escHtml(data.inner)}</div>
+            </div>
+        `);
     }
-    f.textContent = msg; f.style.opacity = '1';
-    clearTimeout(flashTimer); flashTimer = setTimeout(() => { if (f) f.style.opacity = '0'; }, 1900);
-}
-function escapeHtml(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    if (data.director) {
+        const dirLabel = DIR_LABELS[getSettings().mode] || '[ 제작진 ]';
+        blocks.push(`
+            <div class="obs-block type-director">
+                <div class="obs-block-label">${dirLabel}</div>
+                <div class="obs-block-content">${escHtml(data.director)}</div>
+            </div>
+        `);
+    }
+
+    if (data.fact) {
+        blocks.push(`
+            <div class="obs-block type-fact">
+                <div class="obs-block-label">[ 팩트체크 ]</div>
+                <div class="obs-block-content">${escHtml(data.fact)}</div>
+            </div>
+        `);
+    }
+
+    if (data.interview) {
+        blocks.push(`
+            <div class="obs-block type-interview">
+                <div class="obs-block-label">🎤 [ 마이크에 잡힘 ]</div>
+                <div class="obs-block-content">${escHtml(data.interview)}</div>
+            </div>
+        `);
+    }
+
+    body.innerHTML = blocks.length
+        ? blocks.join('')
+        : '<div class="obs-empty">해설 없음</div>';
+
+    // 모드별 시각 스킨용 클래스 (CSS에서 .obs-skin-xxx로 분기)
+    body.className = 'obs-panel-body obs-skin-' + (getSettings().mode || 'docu');
+
+    // 새 해설 렌더되면 맨 위로 (펼친 패널은 손가락으로 스크롤)
+    body.scrollTop = 0;
+    applyTheme(); // 새 블록에 테마 색 적용
 }
 
-// ── 진단 ──
-function diag() {
-    const el = consoleEl;
-    const cs = el ? getComputedStyle(el) : null;
-    const r = el ? el.getBoundingClientRect() : null;
-    let fontOk = false;
-    try { fontOk = !!(document.fonts && document.fonts.check("12px 'Galmuri11'")); } catch (e) { /* noop */ }
-    const d = {
-        v: BEASTLOG_VERSION,
-        inDom: !!(el && (document.documentElement && document.documentElement.contains(el))),
-        pos: cs && cs.position, disp: cs && cs.display, vis: cs && cs.visibility, z: cs && cs.zIndex,
-        rect: r ? { t: Math.round(r.top), l: Math.round(r.left), w: Math.round(r.width), h: Math.round(r.height) } : null,
-        vp: { w: window.innerWidth, h: window.innerHeight },
-        cssLoaded: cs ? (cs.borderTopWidth !== '0px' && cs.borderTopWidth !== '') : false,
-        fontLoaded: fontOk, ctx: !!getCtx(), profiles: getProfiles().length, lastError: LAST_ERROR || '(없음)',
+// ─── preview에 붙일 이모지 결정 ───
+// (옛 마스코트 애니메이션 대신, 흐르는 preview 옆에 이모지를 같이 넣는다)
+// 빈도 확률 + 모드별 키워드 가중치는 그대로 유지.
+function pickPreviewEmojis(data) {
+    const s = getSettings();
+    const base = Math.max(0, Math.min(100, s.fxFrequency || 0));
+    if (base === 0) return '';
+
+    const mode = s.mode;
+    const text = [data.inner, data.director, data.fact, data.interview, data.preview]
+        .filter(Boolean).join(' ');
+
+    const triggers = {
+        docu:    ['멸종', '희귀', '최초', '관찰 사상', '경이', '드뭅', '유일'],
+        sports:  ['골', '득점', '역전', '실패', '성공', '대기록', '승부', '결정', '!'],
+        variety: ['치트키', '결국', '하고 싶은 말', '들켰', '실패', '폭로', '???', 'ㅋㅋ'],
+        court:   ['혐의', '증거', '유죄', '체포', '구속', '범행', '자백', '기소'],
+        guide:   ['보상', '히든', '플래그', '달성', '레벨업', '엔딩', '클리어', '획득'],
+        wiki:    ['사건', '논란', '최초', '대표적', '평가', '의의', '여파'],
+        news:    ['속보', '단독', '충격', '비상', '파장', '논란', '확인', '포착'],
+        bible:   ['태초', '보라', '이르시되', '하더라', '하니라', '거인', '신들', '인과'],
+        community: ['실화', '박제', 'ㅋㅋ', '레전드', '떡밥', '미쳤다', '결혼하자'],
+        scp:     ['SCP', 'CLASSIFIED', '기밀', 'REDACTED', '작전', '소견', '말소'],
     };
-    try { console.log('[비스트로그] DIAG ' + JSON.stringify(d)); } catch (e) { /* noop */ }
-    return d;
+    const hits = (triggers[mode] || []).filter(k => text.includes(k)).length;
+    const boosted = Math.min(100, base + hits * 18);
+
+    if (Math.random() * 100 >= boosted) return '';
+
+    const pool = pickEmojis(mode, text);
+    // 1~2개 골라서 반환
+    const n = Math.random() < 0.4 ? 2 : 1;
+    let out = '';
+    for (let i = 0; i < n; i++) out += pool[Math.floor(Math.random() * pool.length)];
+    return out;
 }
-function diagText() {
-    const d = diag();
-    const S = STATE || {};
-    const E = EXT || {};
-    return [
-        '🐯 Beast Log v' + d.v + '  (' + (typeof nowHHMM === 'function' ? nowHHMM() : '') + ')',
-        '─ 환경 ─',
-        'inDom/css/font : ' + d.inDom + ' / ' + d.cssLoaded + ' / ' + d.fontLoaded,
-        'viewport       : ' + d.vp.w + 'x' + d.vp.h,
-        'ctx / profiles : ' + (d.ctx ? 'ok' : 'null') + ' / ' + d.profiles,
-        'UA             : ' + ((typeof navigator !== 'undefined' && navigator.userAgent) || '?').slice(0, 90),
-        '─ 설정 ─',
-        'profile  : ' + (E.connectionProfile || '(메인 연결)'),
-        'auto/chain/mono : ' + (E.autoDetect ? 'on' : 'off') + ' / ' + (E.chainOn ? 'on' : 'off') + ' / ' + (E.spriteMono ? 'on' : 'off'),
-        'theme/mascot : ' + (E.theme || 'pudding') + ' / ' + (E.mascot || '?'),
-        'depth/inject : ' + (E.contextDepth || 'balance') + ' / ' + (S.settings && S.settings.injectDefault ? 'on' : 'off'),
-        '─ 상태 ─',
-        'Lv ' + (S.level || 1) + ' · xp ' + (S.xp || 0) + ' · 돈 ' + (S.money || 0),
-        'mood/hunger/hp : ' + S.mood + '% / ' + S.hunger + '% / ' + S.hp + '%',
-        '조우 ' + ((S.encounters || []).length) + ' · NPC ' + (Object.keys(S.npcs || {}).length) + ' · 아이템 ' + ((S.items || []).length),
-        '퀘스트 ' + ((S.quests || []).length) + ' · 비밀 ' + ((S.secrets || []).length) + ' · 알바 ' + ((S.jobs || []).length),
-        '─ 최근 로그 ─',
-        (DBG_LOG.length ? DBG_LOG.slice(-20).join('\n') : '(없음)'),
-        '─ 마지막 에러 ─',
-        d.lastError,
-    ].join('\n');
+
+// 모드별 기본 이모지 풀 (다양하게)
+const FX_SETS = {
+    docu:    { emojis: ['📹', '🔬', '🦒', '🐾', '🧬', '🌿', '🔭', '📋', '🦔', '🐧'] },
+    sports:  { emojis: ['⚽', '🥅', '🏟️', '📣', '🏆', '🚩', '🥏', '🎽', '🏅', '📊'] },
+    variety: { emojis: ['🎉', '✨', '🎊', '💥', '😂', '🤡', '💢', '❗', '🫣', '👀', '💀', '🙈'] },
+    court:   { emojis: ['⚖️', '🚨', '👮', '🔍', '📁', '🔒', '📜', '🚓', '🕵️', '⛓️'] },
+    guide:   { emojis: ['🎮', '🕹️', '🏆', '⭐', '💎', '🗝️', '📈', '🎯', '🔓', '👾'] },
+    wiki:    { emojis: ['📚', '📖', '🔖', '📐', '🏛️', '📰', '✍️', '🗂️', '🧾', '📌'] },
+    news:    { emojis: ['📰', '🚨', '📺', '🎙️', '📡', '❗', '🗞️', '📢', '⚡', '🔴'] },
+    bible:   { emojis: ['📖', '✝️', '🕊️', '🙏', '⛪', '📜', '☸️', '🏛️', '⚡', '🐉'] },
+    community: { emojis: ['💬', '🔥', '📱', '😂', '👀', '💀', '🗣️', '❤️', '📸', '⭐'] },
+    scp:     { emojis: ['🗂️', '🔒', '⚠️', '📋', '⬛', '🚧', '🪖', '🩺', '🔬', '🗄️'] },
+};
+
+// 해설 내용에 맞는 이모지를 골라준다 (내용 인식)
+const FX_KEYWORDS = [
+    [/사랑|좋아|설레|두근|애정|키스|연인|심쿵/, ['💗', '💓', '😳', '🫶', '💘']],
+    [/화|분노|짜증|빡|열받|폭발|성질/, ['💢', '😡', '🔥', '💥']],
+    [/거짓|뻥|구라|시치미|들켰|발뺌/, ['🤥', '👃', '🚨', '❌']],
+    [/질투|샘|시기/, ['😤', '🍋', '👿']],
+    [/슬프|눈물|울|우울|상처/, ['😢', '💧', '🥲']],
+    [/돈|비싼|가격|결제|플렉스|쇼핑/, ['💸', '💰', '🤑']],
+    [/먹|밥|음식|배고|요리|식사/, ['🍚', '🍳', '🥢', '😋']],
+    [/술|취|맥주|소주/, ['🍺', '🍻', '🥴']],
+    [/잠|졸|피곤|침대|자고/, ['😴', '💤', '🛏️']],
+    [/무서|공포|섬뜩|소름|음침/, ['😨', '🫥', '🕷️', '🌑']],
+    [/완벽|소유|집착|독점|내 거/, ['🔒', '👑', '🩸', '🫦']],
+    [/근육|운동|힘|강한|싸움/, ['💪', '🥊', '⚡']],
+];
+
+function pickEmojis(mode, text) {
+    if (text) {
+        for (const [re, emojis] of FX_KEYWORDS) {
+            if (re.test(text)) return emojis;
+        }
+    }
+    return FX_SETS[mode]?.emojis || FX_SETS.variety.emojis;
 }
-function copyDebug(text, taEl) {
-    const done = ok => flash(ok ? '📋 복사됨!' : '아래 칸을 길게 눌러 복사해줘');
+
+// ─── 자동 스크롤 제거됨 (ticker marquee로 대체). 호환용 no-op. ───
+function startAutoScroll() { /* deprecated: marquee 사용 */ }
+function stopAutoScroll() { /* deprecated */ }
+
+function updateTickerPreview(preview) {
+    const el = document.querySelector('.obs-ticker-preview');
+    if (!el) return;
+    const text = preview || '녹음 중...';
+    el.innerHTML = `<span class="obs-marquee-inner">${escHtml(text)}</span>`;
+    const inner = el.querySelector('.obs-marquee-inner');
+    el.classList.remove('is-flowing');
+    requestAnimationFrame(() => {
+        if (!inner) return;
+        const textW = inner.scrollWidth;
+        const boxW = el.clientWidth;
+        const overflow = textW > boxW + 4;
+        if (overflow) {
+            el.classList.add('is-flowing');
+            inner.classList.add('obs-marquee-run');
+            // 끝까지 흐르도록 이동 거리 = 텍스트가 박스 밖으로 완전히 나갈 만큼
+            const dist = textW + boxW;
+            inner.style.setProperty('--obs-marquee-start', `${boxW}px`);
+            inner.style.setProperty('--obs-marquee-dist', `-${textW}px`);
+            // 속도: 픽셀당 일정 → 긴 글일수록 길게
+            const dur = Math.max(7, Math.round(dist / 45));
+            inner.style.animationDuration = dur + 's';
+        } else {
+            inner.classList.remove('obs-marquee-run');
+            inner.style.animationDuration = '';
+            inner.style.removeProperty('--obs-marquee-dist');
+            inner.style.transform = '';
+        }
+        applyTheme();
+    });
+}
+
+function setRegenLoading(loading) {
+    const btns = document.querySelectorAll('.obs-regen');
+    let textColor = '';
+    if (!loading) {
+        try {
+            const s = getSettings();
+            const t = HOTMIC_THEMES[THEME_ALIAS[s.theme] || s.theme] || HOTMIC_THEMES.light;
+            textColor = t.text;
+        } catch (e) {}
+    }
+    btns.forEach(btn => {
+        btn.classList.remove('loading');          // 스핀 대신 ⏹ 정적 표시
+        btn.textContent = loading ? '⏹' : '↺';
+        btn.title = loading ? '녹음 중단 (탭)' : '재생성';
+        btn.style.pointerEvents = '';             // 중단하려면 항상 클릭 가능해야 함
+        btn.style.setProperty('color', loading ? '#e2554d' : (textColor || ''), (loading || textColor) ? 'important' : '');
+    });
+}
+
+// 진행 중인 녹음(해설 생성)을 즉시 중단한다. isGenerating을 바로 풀어 새 채팅/재생성이 안 막히게.
+function stopRecording(opts = {}) {
+    if (!isGenerating) return false;
+    try { genController?.abort(); } catch (e) {}
+    try { getContext().stopGeneration?.(); } catch (e) {}  // 폴백(메인 연결) 생성도 중단 시도
+    isGenerating = false;
+    setRegenLoading(false);
+    if (!opts.silent) {
+        toast('⏹ 녹음 중단');
+        updateTickerPreview('⏹ 중단됨 — ↺ 탭하면 재생성');
+        const body = document.querySelector('#observer-panel .obs-panel-body');
+        if (body && !archiveOpen) body.innerHTML = '<div class="obs-empty">🎤 녹음 대기 중 (↺ 탭하면 재생성)</div>';
+    }
+    hotmicDebug('⏹ 녹음 중단됨' + (opts.silent ? ' (채팅 전환)' : ' (수동 탭)'));
+    return true;
+}
+
+function escHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// ─── 상태 전환 ───
+function setState(newState) {
+    const bar = document.getElementById('observer-bar');
+    if (!bar) return;
+    const wasFs = bar.classList.contains('obs-fs-bar');
+    bar.className = `state-${newState}`;
+    if (wasFs && newState === 'panel') bar.classList.add('obs-fs-bar');
+    getSettings().state = newState;
+    saveSettingsDebounced();
+    enforcePosition();
+    if (newState === 'icon') applyIconPos();
+    // 패널 펼침 직후 헤더 높이 확정되면 본문 스크롤 높이 재계산
+    if (newState === 'panel') {
+        requestAnimationFrame(enforcePosition);
+        setTimeout(enforcePosition, 100);
+    }
+}
+
+// ─── 해설 생성 실행 ───
+async function runGeneration() {
+    if (isGenerating) return;
+    const settings = getSettings();
+    if (!settings.enabled) return;
+
+    // ST가 메인 응답을 생성 중이면 끼어들지 않는다 (생성 큐 충돌·데이터 꼬임 방지)
     try {
-        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text).then(() => done(true)).catch(() => fallbackCopyDebug(text, taEl, done));
+        const ctx = getContext();
+        if (ctx?.is_send_press || ctx?.isGenerating ||
+            document.getElementById('mes_stop')?.style.display === 'block') {
+            hotmicDebug('메인 생성 중 → Hot Mic 생성 보류');
             return;
         }
-    } catch (e) { /* noop */ }
-    fallbackCopyDebug(text, taEl, done);
-}
-function fallbackCopyDebug(text, taEl, done) {
+    } catch (e) {}
+
+    const collected = collectData();
+    if (!collected) return;
+
+    // 생성 시작 시점의 채팅을 기억 (생성 중 채팅이 바뀌면 결과를 버린다)
+    const ctxStart = getContext();
+    const chatKeyStart = ctxStart.chatId ?? ctxStart.getCurrentChatId?.() ?? (ctxStart.chat?.length + ':' + (ctxStart.characterId ?? ''));
+
+    isGenerating = true;
+    const controller = new AbortController();
+    genController = controller;
+    setRegenLoading(true);
+    updateTickerPreview('녹음 중... (탭하면 중단)');
+    renderCommentary(null);
+
     try {
-        if (taEl) { taEl.removeAttribute('readonly'); taEl.focus(); taEl.select(); try { taEl.setSelectionRange(0, (text || '').length); } catch (e2) { /* noop */ } }
-        const ok = document.execCommand && document.execCommand('copy');
-        if (taEl) taEl.setAttribute('readonly', 'readonly');
-        done(!!ok);
-    } catch (e) { done(false); }
-}
-function showDiagPopup() {
-    closePopup();
-    const pop = document.createElement('div'); pop.id = 'beastlog-popup';
-    pop.innerHTML = `<div class="bl-pop-card bl-cat-npc">
-        <div class="bl-pop-badge">🐞 진단</div>
-        <div class="bl-diag-box">${escapeHtml(diagText())}</div>
-        <button class="bl-pop-ignore bl-alarm-ok">닫기</button>
-      </div>`;
-    mountPopup(pop);
-    pop.querySelector('.bl-alarm-ok').addEventListener('click', closePopup);
+        const commentary = await generateCommentary(
+            collected.charData,
+            collected.history,
+            collected.lastMessage,
+            controller.signal,
+        );
+        // 수동 중단(탭)됐으면 결과 폐기
+        if (controller.signal.aborted) { console.log('[Hot Mic] 녹음 중단으로 해설 폐기'); return; }
+        // 생성 도중 채팅이 바뀌었으면 이 결과는 폐기 (다른 채팅에 박히는 것 방지)
+        const ctxNow = getContext();
+        const chatKeyNow = ctxNow.chatId ?? ctxNow.getCurrentChatId?.() ?? (ctxNow.chat?.length + ':' + (ctxNow.characterId ?? ''));
+        if (chatKeyNow !== chatKeyStart) {
+            console.log('[Hot Mic] 채팅이 전환되어 해설 폐기');
+            return;
+        }
+        currentCommentary = commentary;
+        const emo = pickPreviewEmojis(commentary);
+        const label = commentary._subLabel ? `[${commentary._subLabel}] ` : '';
+        const previewText = (emo ? emo + ' ' : '') + label + (commentary.preview || '해설 생성 완료');
+        updateTickerPreview(previewText);
+        renderCommentary(commentary);
+    } catch (err) {
+        if (controller.signal.aborted || err?.name === 'AbortError') {
+            console.log('[Hot Mic] 생성 중단됨');  // 사용자가 멈춤 → 에러 표시 안 함
+        } else {
+            console.error('[Hot Mic] 해설 생성 실패:', err);
+            if (HOTMIC_LAST) HOTMIC_LAST.error = String(err?.message || err);
+            updateTickerPreview('⚠ 생성 실패');
+            const body = document.querySelector('#observer-panel .obs-panel-body');
+            if (body && !archiveOpen) body.innerHTML = '<div class="obs-empty">⚠ 해설 생성에 실패했습니다</div>';
+        }
+    } finally {
+        if (genController === controller) genController = null;
+        isGenerating = false;
+        setRegenLoading(false);
+    }
 }
 
-function registerEvents() {
-    const ctx = getCtx();
-    if (!ctx || !ctx.eventSource) return;
-    const types = ctx.eventTypes || ctx.event_types || {};
-    if (types.CHAT_CHANGED) ctx.eventSource.on(types.CHAT_CHANGED, () => { STATE = loadState(); saveState(STATE); lastTouch = Date.now(); isSleeping = false; hungerWarnLevel = -1; ensureMounted(); renderAll(); refreshMemory(); });
-    // 자동 출현: 상대 메시지가 올 때마다, 텀(쿨다운) 간격을 지키며 자동으로 조우 1건 생성
-    const onMsg = () => {
-        noteTouch();   // 채팅이 오가면 졸음에서 깸 + 잠 타이머 리셋
-        STATE.turnCount = (STATE.turnCount || 0) + 1;   // 답장 받을 때마다 +1 (채팅 길이와 무관 → 시뮬·되돌리기 영향 없음)
-        if (!EXT.autoDetect || _blBusy) { saveState(STATE); return; }
-        if (getChatLen() < 2) { saveState(STATE); return; }   // 새 챗 첫 인사말 단계엔 자동출현 안 함
-        const since = STATE.turnCount - (STATE.lastInjectCount || 0);
-        const cd = (STATE.injectCD == null ? 3 : STATE.injectCD);
-        if (since < cd) { saveState(STATE); return; }   // 아직 쿨다운
-        STATE.lastInjectCount = STATE.turnCount;
-        STATE.injectCD = 3 + Math.floor(Math.random() * 2);   // 다음 간격 3~4
-        saveState(STATE); renderAll();
-        // 조우/상황 랜덤 (반반)
-        const fn = Math.random() < 0.5 ? onAppear : onSituation;
-        setTimeout(() => { if (EXT.autoDetect && !_blBusy) fn(); }, 700);
-    };
-    if (types.MESSAGE_RECEIVED) ctx.eventSource.on(types.MESSAGE_RECEIVED, onMsg);
-    if (types.MESSAGE_SENT) ctx.eventSource.on(types.MESSAGE_SENT, noteTouch);   // 내가 보낼 때도 깸
+// ─── HTML 삽입 ───
+function injectUI() {
+    if (document.getElementById('observer-bar')) return;
+
+    const settings = getSettings();
+
+    const html = `
+<div id="observer-bar" class="state-${settings.state}">
+
+    <!-- 아이콘만 -->
+    <button id="observer-icon-btn" title="Hot Mic 열기">
+        <span class="obs-icon-recdot"></span>
+    </button>
+
+    <!-- 자막바 -->
+    <div id="observer-ticker">
+        <span class="obs-ticker-recdot"></span>
+        <span class="obs-ticker-badge">LIVE</span>
+        <span class="obs-ticker-preview">녹음 중...</span>
+        <div class="obs-ticker-actions">
+            <button class="obs-btn-small obs-regen" title="재생성">↺</button>
+            <button class="obs-btn-small obs-expand" title="펼치기">▲</button>
+            <button class="obs-btn-small obs-minimize" title="최소화">✕</button>
+        </div>
+    </div>
+
+    <!-- 풀 패널 -->
+    <div id="observer-panel">
+        <div class="obs-opacity-track" title="좌우로 드래그해 투명도 조절">
+            <div class="obs-opacity-fill"></div>
+            <div class="obs-opacity-knob"></div>
+        </div>
+        <div class="obs-panel-header">
+            <span class="obs-panel-title">🎤 HOT MIC</span>
+            <div class="obs-panel-controls">
+                <select class="obs-select obs-mode-select" title="나레이션 모드">
+                    <option value="docu"   ${settings.mode === 'docu'    ? 'selected' : ''}>🎬 다큐</option>
+                    <option value="sports" ${settings.mode === 'sports'  ? 'selected' : ''}>🏟️ 중계</option>
+                    <option value="variety"${settings.mode === 'variety' ? 'selected' : ''}>📺 예능</option>
+                    <option value="court"  ${settings.mode === 'court'   ? 'selected' : ''}>⚖️ 법정수사</option>
+                    <option value="guide"  ${settings.mode === 'guide'   ? 'selected' : ''}>🎮 공략집</option>
+                    <option value="wiki"   ${settings.mode === 'wiki'    ? 'selected' : ''}>📚 위키</option>
+                    <option value="news"   ${settings.mode === 'news'    ? 'selected' : ''}>📰 속보</option>
+                    <option value="bible"  ${settings.mode === 'bible'   ? 'selected' : ''}>🛕 성전</option>
+                    <option value="community" ${settings.mode === 'community' ? 'selected' : ''}>🗣️ 커뮤니티</option>
+                    <option value="scp"    ${settings.mode === "scp"     ? "selected" : ""}>🗂️ 기밀문서</option>
+                </select>
+                <select class="obs-select obs-context-select" title="맥락 범위">
+                    <option value="current" ${settings.context === 'current'  ? 'selected' : ''}>현재</option>
+                    <option value="recent5" ${settings.context === 'recent5'  ? 'selected' : ''}>5턴</option>
+                    <option value="all"     ${settings.context === 'all'      ? 'selected' : ''}>전체</option>
+                </select>
+                <select class="obs-select obs-theme-select" title="색상 테마">
+                    <option value="light"     ${settings.theme === 'light'     ? 'selected' : ''}>🤍</option>
+                    <option value="butter"    ${settings.theme === 'butter'    ? 'selected' : ''}>🧈</option>
+                    <option value="parchment" ${settings.theme === 'parchment' ? 'selected' : ''}>📜</option>
+                    <option value="wine"      ${settings.theme === 'wine'      ? 'selected' : ''}>🍷</option>
+                    <option value="forest"    ${settings.theme === 'forest'    ? 'selected' : ''}>🌲</option>
+                    <option value="blue"      ${settings.theme === 'blue'      ? 'selected' : ''}>🌊</option>
+                    <option value="dark"      ${settings.theme === 'dark'      ? 'selected' : ''}>⚫</option>
+                </select>
+                <button class="obs-btn-small obs-regen" title="재생성">↺</button>
+                <button class="obs-btn-small obs-bookmark" title="특전 수록 (이 코멘터리 저장)">★</button>
+                <button class="obs-btn-small obs-archive" title="특전 수록함 열기">💿</button>
+                <button class="obs-btn-small obs-fullscreen" title="전체 펼치기">⛶</button>
+                <button class="obs-btn-small obs-collapse" title="접기">▼</button>
+                <button class="obs-btn-small obs-minimize" title="최소화">✕</button>
+            </div>
+        </div>
+        <div class="obs-panel-body">
+            <div class="obs-empty">🎤 녹음 중...</div>
+        </div>
+    </div>
+
+</div>`;
+
+    // body에 직접 삽입한다.
+    document.body.insertAdjacentHTML('beforeend', html);
+
+    if (settings.fullscreen) {
+        document.getElementById('observer-panel')?.classList.add('obs-fs');
+        document.getElementById('observer-bar')?.classList.add('obs-fs-bar');
+    }
+    // 활성화 상태인데 아이콘(작게)으로 시작하면 모바일에서 못 보기 쉬움 → ticker 보장.
+    // 또한 패널(state-panel)로 시작하면 키가 커서 bottom 고정 시 위쪽이 화면 밖으로 넘침.
+    // 모바일에서는 무조건 ticker(한 줄)로 시작한다.
+    const isMobileInit = window.matchMedia('(max-width: 1000px)').matches;
+    if (settings.enabled && (settings.state === 'icon' || (isMobileInit && settings.state === 'panel'))) {
+        settings.state = 'ticker';
+    }
+    const barEl = document.getElementById('observer-bar');
+    if (barEl) {
+        barEl.className = `state-${settings.state}`;
+        if (settings.fullscreen && settings.state === 'panel') barEl.classList.add('obs-fs-bar');
+    }
+    bindEvents();
+    enforcePosition();
 }
 
-function init() {
-    try {
-        EXT = loadExt(); STATE = loadState(); saveState(STATE);
+// 위치 강제 보정:
+// ST의 조상 요소에 transform/filter가 걸리면 position:fixed가 화면이 아닌
+// 그 조상 기준으로 잡혀 화면 밖으로 밀린다. bar를 body 직속으로 끌어올리고
+// 인라인 스타일로 위치를 못박아 어떤 CSS/조상보다 우선하게 만든다.
+function enforcePosition() {
+    const bar = document.getElementById('observer-bar');
+    if (!bar) return;
+
+    // 1) body 직속이 아니면 끌어올림
+    if (bar.parentElement !== document.body) {
+        document.body.appendChild(bar);
+    }
+
+    // 2) 전체펼침이 아닐 때만 하단 고정을 강제 (전체펼침은 CSS가 처리)
+    if (!bar.classList.contains('obs-fs-bar')) {
+        const isMobile = window.matchMedia('(max-width: 1000px)').matches;
+        const gap = isMobile ? 56 : 60;
+
+        // ST staging은 body/html에 transform을 걸기도 한다. 그러면 position:fixed가
+        // 화면이 아니라 그 조상 기준이 되어 bottom 값이 엉뚱하게 적용된다(top이 음수로 튐).
+        // 이를 우회하려고, 화면 좌표를 직접 계산해 top으로 박는다.
+        const panel = document.getElementById('observer-panel');
+        const pbody = panel?.querySelector('.obs-panel-body');
+        if (panel && pbody) {
+            const topSafe = 16;
+            // 패널 전체가 화면을 넘지 않도록: 헤더 높이를 빼고 본문 max-height 계산
+            const header = panel.querySelector('.obs-panel-header');
+            const headerH = header ? header.offsetHeight : 44;
+            const avail = Math.max(80, window.innerHeight - gap - topSafe - headerH - 16);
+            pbody.style.setProperty('max-height', avail + 'px', 'important');
+            pbody.style.setProperty('overflow-y', 'auto', 'important');
+            pbody.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+            panel.style.setProperty('max-height', 'none', 'important');
+        }
+
+        bar.style.setProperty('position', 'fixed', 'important');
+        bar.style.setProperty('left', '0', 'important');
+        bar.style.setProperty('right', '0', 'important');
+        bar.style.setProperty('transform', 'none', 'important');
+        bar.style.setProperty('z-index', '100000', 'important');
+
+        // transform 조상이 있는지 감지: bottom 적용 후 실제 위치가 화면 밖이면 top으로 직접 박기
+        bar.style.setProperty('bottom', `${gap}px`, 'important');
+        bar.style.setProperty('top', 'auto', 'important');
+
+        // 다음 프레임에 실제 렌더 위치를 재서, 화면 밖이면 top 좌표로 교정
+        requestAnimationFrame(() => {
+            const r = bar.getBoundingClientRect();
+            const h = r.height || 40;
+            const wanted = window.innerHeight - gap - h; // 화면 기준 원하는 top
+            // 실제 top이 원하는 값과 크게 다르면(=transform 조상 때문) top으로 강제
+            if (Math.abs(r.top - wanted) > 4 || r.top < 0 || r.top > window.innerHeight) {
+                bar.style.setProperty('bottom', 'auto', 'important');
+                bar.style.setProperty('top', `${Math.max(0, wanted)}px`, 'important');
+            }
+        });
+    }
+}
+
+function bindEvents() {
+    const bar = document.getElementById('observer-bar');
+    if (!bar) return;
+
+    // 아이콘: 탭 → 열기, 드래그 → 위치 이동
+    const iconBtn = bar.querySelector('#observer-icon-btn');
+    if (iconBtn) {
+        let dragging = false, moved = false, startX = 0, startY = 0, baseX = 0, baseY = 0;
+
+        const onDown = (e) => {
+            const pt = e.touches ? e.touches[0] : e;
+            dragging = true; moved = false;
+            startX = pt.clientX; startY = pt.clientY;
+            const r = iconBtn.getBoundingClientRect();
+            baseX = r.left; baseY = r.top;
+            iconBtn.style.transition = 'none';
+        };
+        const onMove = (e) => {
+            if (!dragging) return;
+            const pt = e.touches ? e.touches[0] : e;
+            const dx = pt.clientX - startX;
+            const dy = pt.clientY - startY;
+            if (Math.abs(dx) > 5 || Math.abs(dy) > 5) moved = true;
+            if (!moved) return;
+            e.preventDefault();
+            const size = iconBtn.offsetWidth || 44;
+            let nx = baseX + dx, ny = baseY + dy;
+            // 화면 안으로 제한
+            nx = Math.max(4, Math.min(window.innerWidth - size - 4, nx));
+            ny = Math.max(4, Math.min(window.innerHeight - size - 4, ny));
+            // bar의 flex-end 무시하고 직접 고정
+            iconBtn.style.position = 'fixed';
+            iconBtn.style.left = nx + 'px';
+            iconBtn.style.top = ny + 'px';
+            iconBtn.style.right = 'auto';
+            iconBtn.style.bottom = 'auto';
+        };
+        const onUp = () => {
+            if (!dragging) return;
+            dragging = false;
+            iconBtn.style.transition = '';
+            if (moved) {
+                const r = iconBtn.getBoundingClientRect();
+                getSettings().iconPos = { x: r.left, y: r.top };
+                saveSettingsDebounced();
+            } else {
+                setState('ticker'); // 안 움직였으면 탭으로 간주 → 열기
+            }
+        };
+
+        iconBtn.addEventListener('mousedown', onDown);
+        iconBtn.addEventListener('touchstart', onDown, { passive: true });
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('touchmove', onMove, { passive: false });
+        window.addEventListener('mouseup', onUp);
+        window.addEventListener('touchend', onUp);
+    }
+
+    // ticker 클릭: preview 탭 → 흐름 멈춤/재생 토글, 그 외 영역 → 패널 열기
+    bar.querySelector('#observer-ticker')?.addEventListener('click', (e) => {
+        if (e.target.closest('button')) return;
+        if (e.target.closest('.obs-ticker-preview')) {
+            // 녹음 중이면 탭 = 중단
+            if (isGenerating) { stopRecording(); return; }
+            // 흐름 토글
+            const inner = bar.querySelector('.obs-marquee-inner');
+            if (inner && inner.classList.contains('obs-marquee-run')) {
+                inner.classList.toggle('obs-marquee-paused');
+            }
+            return; // 패널 안 열림
+        }
+        setState('panel');
+    });
+
+    // 펼치기
+    bar.querySelectorAll('.obs-expand').forEach(btn =>
+        btn.addEventListener('click', (e) => { e.stopPropagation(); setState('panel'); })
+    );
+
+    // 패널 본문에서 '녹음 중' 표시 탭 → 중단
+    bar.querySelector('.obs-panel-body')?.addEventListener('click', (e) => {
+        if (isGenerating && e.target.closest('.obs-rec-live')) stopRecording();
+    });
+
+    // 접기
+    bar.querySelectorAll('.obs-collapse').forEach(btn =>
+        btn.addEventListener('click', (e) => { e.stopPropagation(); setState('ticker'); })
+    );
+
+    // 최소화
+    bar.querySelectorAll('.obs-minimize').forEach(btn =>
+        btn.addEventListener('click', (e) => { e.stopPropagation(); setState('icon'); })
+    );
+
+    // 재생성 / 녹음 중엔 중단(⏹)
+    bar.querySelectorAll('.obs-regen').forEach(btn =>
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (isGenerating) stopRecording();
+            else runGeneration();
+        })
+    );
+
+    // 특전 수록 (현재 코멘터리 저장)
+    bar.querySelectorAll('.obs-bookmark').forEach(btn =>
+        btn.addEventListener('click', (e) => { e.stopPropagation(); saveBookmark(btn); })
+    );
+    // 특전 수록함 열기/닫기 (패널 페이지 전환)
+    bar.querySelectorAll('.obs-archive').forEach(btn =>
+        btn.addEventListener('click', (e) => { e.stopPropagation(); toggleArchive(); })
+    );
+
+    // 전체 펼치기 토글
+    bar.querySelectorAll('.obs-fullscreen').forEach(btn =>
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const panel = document.getElementById('observer-panel');
+            const on = panel.classList.toggle('obs-fs');
+            document.getElementById('observer-bar')?.classList.toggle('obs-fs-bar', on);
+            getSettings().fullscreen = on;
+            saveSettingsDebounced();
+            btn.title = on ? '원래대로' : '전체 펼치기';
+        })
+    );
+
+    // 헤더 모드 변경
+    bar.querySelector('.obs-mode-select')?.addEventListener('change', (e) => {
+        e.stopPropagation();
+        getSettings().mode = e.target.value;
+        saveSettingsDebounced();
+        syncControls();
+    });
+    bar.querySelector('.obs-mode-select')?.addEventListener('click', (e) => e.stopPropagation());
+
+    // 헤더 맥락 변경
+    bar.querySelector('.obs-context-select')?.addEventListener('change', (e) => {
+        e.stopPropagation();
+        getSettings().context = e.target.value;
+        saveSettingsDebounced();
+        syncControls();
+    });
+    bar.querySelector('.obs-context-select')?.addEventListener('click', (e) => e.stopPropagation());
+
+    // 헤더 테마 선택
+    bar.querySelector('.obs-theme-select')?.addEventListener('change', (e) => {
+        e.stopPropagation();
+        getSettings().theme = e.target.value;
         applyTheme();
-        buildConsole(); renderConsole(); applyConsolePos();
-        buildSettingsWithRetry(10); buildWandMenuWithRetry(10);
-        registerEvents();
-        lastTouch = Date.now(); isSleeping = false;
-        startBlink();
-        setTimeout(refreshMemory, 1200);
-        setTimeout(() => { ensureMounted(); applyConsolePos(); }, 300);
-        setTimeout(() => { ensureMounted(); applyConsolePos(); }, 1500);
-        setTimeout(ensureMounted, 4000);
-        setTimeout(diag, 800);
-        window.addEventListener('resize', () => { ensureMounted(); applyConsolePos(); positionBubble(); });
-        window.addEventListener('orientationchange', () => setTimeout(() => { applyConsolePos(); positionBubble(); }, 200));
-        blDebug('비스트로그', BEASTLOG_VERSION, '로드됨');
-    } catch (e) { LAST_ERROR = (e && (e.stack || e.message)) || String(e); console.error('[비스트로그] init 실패:', e); }
+        saveSettingsDebounced();
+        syncControls();
+    });
+    bar.querySelector('.obs-theme-select')?.addEventListener('click', (e) => e.stopPropagation());
+
+    // 패널 상단 투명도 슬라이더 (얇은 선 + 흰 핸들, 좌우 드래그)
+    const opTrack = bar.querySelector('.obs-opacity-track');
+    if (opTrack) {
+        const fill = opTrack.querySelector('.obs-opacity-fill');
+        const knob = opTrack.querySelector('.obs-opacity-knob');
+        const syncFill = () => {
+            const v = getSettings().opacity || 92;
+            const pct = (v - 30) / 70 * 100; // 30~100 → 0~100%
+            if (fill) fill.style.width = `calc((100% - 24px) * ${pct/100})`;
+            if (knob) knob.style.left = `calc(12px + (100% - 24px) * ${pct/100})`;
+        };
+        syncFill();
+
+        let dragging = false;
+        const setFromX = (clientX) => {
+            const r = opTrack.getBoundingClientRect();
+            const pad = 12;
+            let ratio = (clientX - r.left - pad) / (r.width - pad * 2);
+            ratio = Math.max(0, Math.min(1, ratio));
+            const v = Math.round(30 + ratio * 70); // 30~100
+            getSettings().opacity = v;
+            applyTheme();
+            syncFill();
+        };
+        const onDown = (e) => {
+            dragging = true;
+            const pt = e.touches ? e.touches[0] : e;
+            setFromX(pt.clientX);
+            e.stopPropagation();
+        };
+        const onMove = (e) => {
+            if (!dragging) return;
+            const pt = e.touches ? e.touches[0] : e;
+            setFromX(pt.clientX);
+            e.preventDefault();
+        };
+        const onUp = () => {
+            if (!dragging) return;
+            dragging = false;
+            saveSettingsDebounced();
+        };
+        opTrack.addEventListener('mousedown', onDown);
+        opTrack.addEventListener('touchstart', onDown, { passive: true });
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('touchmove', onMove, { passive: false });
+        window.addEventListener('mouseup', onUp);
+        window.addEventListener('touchend', onUp);
+    }
 }
-if (typeof window !== 'undefined') {
-    window.beastlog = {
-        show: () => { try { ensureMounted(); showMini(); } catch (e) { console.error(e); } },
-        full: () => { try { showFull(); } catch (e) { console.error(e); } },
-        remount: () => { try { ensureMounted(); } catch (e) { console.error(e); } },
-        reset: () => { EXT.consolePos = null; saveExt(); applyConsolePos(); },
-        diag: () => diag(),
-        // ── 복권 테스트용 ──
-        lottoUnlock: () => {   // 강제로 복권 해금(마지막 알바를 깽판으로 위장) + 돈 충전
-            STATE.lastJob = STATE.lastJob || { who: '', job: '테스트', report: '', pay: 0, mood: '' };
-            STATE.lastJob.pay = 5000;          // 알바비 5천원(≤1.5만) → 해금
-            STATE.lottoUsed = 0;               // 복권 횟수 리셋
-            STATE.money = (STATE.money || 0) + 5000;   // 긁을 돈 보충
-            saveState(STATE); renderAll();
-            console.log('[비스트로그] 🎰 복권 해금됨! 알바 탭 열고 복권 긁어보세요 (3장)');
-        },
-        lottoDraw: () => { try { buyLotto(); } catch (e) { console.error(e); } },  // 복권 바로 추첨
+
+// ─── 설정 드로어 ───
+function injectSettings() {
+    hotmicDebug('  · injectSettings: container 찾는 중');
+    const container = document.getElementById('extensions_settings2')
+        || document.getElementById('extensions_settings');
+    if (!container) { hotmicDebug('  · container 없음 → return (정상)'); return; }
+    if (document.getElementById('hotmic-settings')) { hotmicDebug('  · 이미 있음 → return'); return; }
+
+    hotmicDebug('  · settings/profiles 읽는 중');
+    const settings = getSettings();
+    const profiles = getConnectionProfiles();
+    hotmicDebug('  · profiles 개수=' + (profiles?.length ?? 'null'));
+
+    const profileOptions = ['<option value="">기본 (현재 연결)</option>']
+        .concat((profiles || []).map(p =>
+            `<option value="${escHtml(p.name)}" ${settings.profile === p.name ? 'selected' : ''}>${escHtml(p.name)}</option>`
+        )).join('');
+    hotmicDebug('  · profileOptions 완성');
+
+    const themeOptions = Object.entries(HOTMIC_THEMES)
+        .map(([k, v]) => `<option value="${k}" ${settings.theme === k ? 'selected' : ''}>${v.name}</option>`)
+        .join('');
+
+    const html = `
+<div id="hotmic-settings" class="extension_settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>🎤 Hot Mic</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <label class="checkbox_label" style="margin-bottom:10px;">
+                <input type="checkbox" id="hotmic-enabled" ${settings.enabled ? 'checked' : ''}>
+                <span>활성화 (응답마다 자동 녹음)</span>
+            </label>
+
+            <label for="hotmic-profile">해설 생성 연결 프로필</label>
+            <select id="hotmic-profile" class="text_pole">${profileOptions}</select>
+            <small class="notes">메인 RP와 다른 모델로 해설을 뽑고 싶을 때 선택. (예: RP는 GLM, 해설은 Claude)</small>
+
+            <label for="hotmic-language" id="hotmic-lang-label" style="margin-top:10px;">출력 언어</label>
+            <select id="hotmic-language" class="text_pole">
+                <option value="ko" ${settings.language === 'ko' ? 'selected' : ''}>한국어</option>
+                <option value="en" ${settings.language === 'en' ? 'selected' : ''}>English</option>
+            </select>
+
+            <label for="hotmic-theme" style="margin-top:10px;">색상 테마</label>
+            <select id="hotmic-theme" class="text_pole">${themeOptions}</select>
+
+            <label for="hotmic-mode" style="margin-top:10px;">나레이션 모드</label>
+            <select id="hotmic-mode" class="text_pole">
+                <option value="docu"    ${settings.mode === 'docu'    ? 'selected' : ''}>🎬 다큐멘터리</option>
+                <option value="sports"  ${settings.mode === 'sports'  ? 'selected' : ''}>🏟️ 스포츠 중계</option>
+                <option value="variety" ${settings.mode === 'variety' ? 'selected' : ''}>📺 예능</option>
+                <option value="court"   ${settings.mode === 'court'   ? 'selected' : ''}>⚖️ 법정수사</option>
+                <option value="guide"   ${settings.mode === 'guide'   ? 'selected' : ''}>🎮 공략집</option>
+                <option value="wiki"    ${settings.mode === 'wiki'    ? 'selected' : ''}>📚 위키</option>
+                <option value="news"    ${settings.mode === 'news'    ? 'selected' : ''}>📰 속보</option>
+                <option value="bible"   ${settings.mode === 'bible'   ? 'selected' : ''}>🛕 성전</option>
+                <option value="community" ${settings.mode === 'community' ? 'selected' : ''}>🗣️ 커뮤니티</option>
+                    <option value="scp"    ${settings.mode === "scp"     ? "selected" : ""}>🗂️ 기밀문서</option>
+            </select>
+
+            <label for="hotmic-context" style="margin-top:10px;">맥락 범위</label>
+            <select id="hotmic-context" class="text_pole">
+                <option value="current" ${settings.context === 'current' ? 'selected' : ''}>현재 메시지만</option>
+                <option value="recent5" ${settings.context === 'recent5' ? 'selected' : ''}>최근 5턴</option>
+                <option value="all"     ${settings.context === 'all'     ? 'selected' : ''}>전체 대화</option>
+            </select>
+
+            <label for="hotmic-length" style="margin-top:10px;">해설 분량</label>
+            <select id="hotmic-length" class="text_pole">
+                <option value="short"  ${settings.length === 'short'  ? 'selected' : ''}>간결 (짧고 강하게)</option>
+                <option value="normal" ${settings.length === 'normal' ? 'selected' : ''}>보통</option>
+                <option value="long"   ${settings.length === 'long'   ? 'selected' : ''}>수다 (풍부하게)</option>
+                <option value="max"    ${settings.length === 'max'    ? 'selected' : ''}>초장문 (대용량)</option>
+            </select>
+
+            <label for="hotmic-preset" style="margin-top:10px;">구성</label>
+            <select id="hotmic-preset" class="text_pole">
+                <option value="all"       ${settings.preset === 'all'       ? 'selected' : ''}>전체 (속마음+제작진+팩트+인터뷰)</option>
+                <option value="fact"      ${settings.preset === 'fact'      ? 'selected' : ''}>팩트체크만</option>
+                <option value="interview" ${settings.preset === 'interview' ? 'selected' : ''}>인터뷰만</option>
+                <option value="broadcast" ${settings.preset === 'broadcast' ? 'selected' : ''}>속마음 + 제작진/중계만</option>
+            </select>
+
+            <label for="hotmic-fxfreq" style="margin-top:12px;">이모지 빈도: <span id="hotmic-fx-val">${settings.fxFrequency}</span>%</label>
+            <input type="range" id="hotmic-fxfreq" min="0" max="100" step="10" value="${settings.fxFrequency}" style="width:100%;">
+
+            <label for="hotmic-opacity" style="margin-top:10px;">불투명도: <span id="hotmic-op-val">${settings.opacity}</span>%</label>
+            <input type="range" id="hotmic-opacity" min="30" max="100" step="5" value="${settings.opacity}" style="width:100%;">
+        </div>
+    </div>
+</div>`;
+
+    container.insertAdjacentHTML('beforeend', html);
+
+    const bind = (id, key) => {
+        document.getElementById(id)?.addEventListener('change', (e) => {
+            const v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+            getSettings()[key] = v;
+            saveSettingsDebounced();
+            syncControls();
+        });
+    };
+    bind('hotmic-enabled', 'enabled');
+    bind('hotmic-profile', 'profile');
+    bind('hotmic-language', 'language');
+    bind('hotmic-mode', 'mode');
+    bind('hotmic-context', 'context');
+    bind('hotmic-length', 'length');
+    bind('hotmic-preset', 'preset');
+
+    document.getElementById('hotmic-theme')?.addEventListener('change', (e) => {
+        getSettings().theme = e.target.value;
+        applyTheme();
+        saveSettingsDebounced();
+    });
+
+    document.getElementById('hotmic-fxfreq')?.addEventListener('input', (e) => {
+        const v = parseInt(e.target.value, 10);
+        getSettings().fxFrequency = v;
+        const lbl = document.getElementById('hotmic-fx-val');
+        if (lbl) lbl.textContent = v;
+        saveSettingsDebounced();
+    });
+
+    document.getElementById('hotmic-opacity')?.addEventListener('input', (e) => {
+        const v = parseInt(e.target.value, 10);
+        getSettings().opacity = v;
+        const lbl = document.getElementById('hotmic-op-val');
+        if (lbl) lbl.textContent = v;
+        applyTheme();
+        saveSettingsDebounced();
+    });
+
+    document.getElementById('hotmic-enabled')?.addEventListener('change', applyEnabledState);
+    applyEnabledState();
+
+    // 🥚 이스터에그: "출력 언어" 라벨 1.5초 내 5번 탭 → 디버그
+    const langLabel = document.getElementById('hotmic-lang-label');
+    if (langLabel) {
+        let taps = [];
+        langLabel.style.cursor = 'default';
+        langLabel.addEventListener('click', () => {
+            const now = Date.now();
+            taps = taps.filter(t => now - t < 1500);
+            taps.push(now);
+            if (taps.length >= 5) {
+                taps = [];
+                HOTMIC_DEBUG = !HOTMIC_DEBUG;
+                langLabel.textContent = HOTMIC_DEBUG ? '🐞 디버그 ON' : '출력 언어';
+                if (HOTMIC_DEBUG) showDebugReport();
+                else document.getElementById('hotmic-debug')?.remove();
+                setTimeout(() => { langLabel.textContent = '출력 언어'; }, 2000);
+            }
+        });
+    }
+}
+
+
+// 활성화 상태에 따라 자막바 표시
+function applyEnabledState() {
+    const bar = document.getElementById('observer-bar');
+    if (bar) bar.style.display = getSettings().enabled ? '' : 'none';
+}
+
+// 테마 + 불투명도 적용
+function applyTheme() {
+    const s = getSettings();
+    const themeKey = THEME_ALIAS[s.theme] || s.theme;
+    const t = HOTMIC_THEMES[themeKey] || HOTMIC_THEMES.light;
+    const a = Math.max(0.3, Math.min(1, (s.opacity || 92) / 100));
+    const bar = document.getElementById('observer-bar');
+    if (!bar) return;
+
+    // 패널/배경색 (hex). 어두운 테마 여부는 배경 밝기로 판정
+    const bgRGB = t.bg.split(',').map(Number);
+    const luma = (0.299*bgRGB[0] + 0.587*bgRGB[1] + 0.114*bgRGB[2]);
+    const isDark = luma < 128;
+    const panelHex = t.panel;
+
+    // CSS 변수 노출 (스킨 CSS가 이 변수들을 사용)
+    bar.style.setProperty('--hm-accent', t.accent);
+    bar.style.setProperty('--hm-text', t.text);
+    bar.style.setProperty('--hm-panel', panelHex);
+    bar.style.setProperty('--hm-border', t.border);
+    bar.style.setProperty('--hm-bg', `rgb(${t.bg})`);
+    // 살짝 비치는 보조 배경(말풍선/카드용): 어두우면 흰끼, 밝으면 검정끼
+    bar.style.setProperty('--hm-soft', isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)');
+    bar.style.setProperty('--hm-line', isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)');
+
+    const ticker = document.getElementById('observer-ticker');
+    const panel = document.getElementById('observer-panel');
+    if (ticker) {
+        ticker.style.setProperty('background', panelHex, 'important');
+        ticker.style.setProperty('opacity', a, 'important');
+    }
+    if (panel) {
+        panel.style.setProperty('background', 'transparent', 'important');
+        panel.style.setProperty('opacity', '1', 'important');
+        panel.querySelectorAll('.obs-panel-header, .obs-panel-body').forEach(el => {
+            el.style.setProperty('background', panelHex, 'important');
+            // 보관함(hma-active)일 땐 본문을 불투명하게 — 스티키 제목 뒤로 내용 비침 방지
+            el.style.setProperty('opacity', el.classList.contains('hma-active') ? 1 : a, 'important');
+        });
+        const track = panel.querySelector('.obs-opacity-track');
+        if (track) {
+            const rgb = panelHex.replace('#','').match(/.{2}/g).map(h=>parseInt(h,16)).join(',');
+            track.style.setProperty('background', `rgba(${rgb},${a})`, 'important');
+        }
+    }
+    // 텍스트색
+    bar.querySelectorAll('.obs-ticker-preview, .obs-block-content').forEach(el => {
+        el.style.setProperty('color', t.text, 'important');
+    });
+    // 강조색
+    bar.querySelectorAll('.obs-ticker-badge, .obs-panel-title, .obs-block-label').forEach(el => {
+        el.style.setProperty('color', t.accent, 'important');
+    });
+    bar.querySelectorAll('.obs-ticker-recdot, .obs-icon-recdot').forEach(el => {
+        el.style.setProperty('background', t.accent, 'important');
+    });
+    // 헤더 버튼/셀렉트
+    bar.querySelectorAll('.obs-btn-small').forEach(el => {
+        el.style.setProperty('color', t.text, 'important');
+    });
+    bar.querySelectorAll('.obs-select').forEach(el => {
+        el.style.setProperty('color', t.text, 'important');
+        el.style.setProperty('background', isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', 'important');
+        el.style.setProperty('border-color', t.border, 'important');
+    });
+    // 투명도 슬라이더 위치
+    const opFill = bar.querySelector('.obs-opacity-fill');
+    const opKnob = bar.querySelector('.obs-opacity-knob');
+    const pct = ((s.opacity || 92) - 30) / 70 * 100;
+    if (opFill) opFill.style.width = `calc((100% - 24px) * ${pct/100})`;
+    if (opKnob) opKnob.style.left = `calc(12px + (100% - 24px) * ${pct/100})`;
+}
+function applyOpacity() { applyTheme(); }
+
+// 저장된 최소화 아이콘 위치 복원 (드래그로 옮긴 자리)
+function applyIconPos() {
+    const iconBtn = document.getElementById('observer-icon-btn');
+    if (!iconBtn) return;
+    const pos = getSettings().iconPos;
+    if (pos && typeof pos.x === 'number') {
+        const size = iconBtn.offsetWidth || 44;
+        const x = Math.max(4, Math.min(window.innerWidth - size - 4, pos.x));
+        const y = Math.max(4, Math.min(window.innerHeight - size - 4, pos.y));
+        iconBtn.style.position = 'fixed';
+        iconBtn.style.left = x + 'px';
+        iconBtn.style.top = y + 'px';
+        iconBtn.style.right = 'auto';
+        iconBtn.style.bottom = 'auto';
+        iconBtn.style.zIndex = '100001';
+    } else {
+        // 기본값: bar의 flex-end (우하단) 사용 → 인라인 스타일 제거
+        iconBtn.style.position = '';
+        iconBtn.style.left = '';
+        iconBtn.style.top = '';
+        iconBtn.style.right = '';
+        iconBtn.style.bottom = '';
+    }
+}
+
+// 설정 값 동기화
+function syncControls() {
+    const s = getSettings();
+    const set = (sel, val) => { const el = document.querySelector(sel); if (el && el.value !== val) el.value = val; };
+    set('#hotmic-mode', s.mode);
+    set('#hotmic-context', s.context);
+    set('.obs-mode-select', s.mode);
+    set('.obs-context-select', s.context);
+    set('.obs-theme-select', s.theme);
+    set('#hotmic-language', s.language);
+    set('#hotmic-length', s.length);
+    set('#hotmic-preset', s.preset);
+    set('#hotmic-theme', s.theme);
+    set('#hotmic-profile', s.profile);
+    const en = document.getElementById('hotmic-enabled');
+    if (en) en.checked = s.enabled;
+}
+
+// ─── 매직완드(확장) 메뉴 토글 — 모바일 접근성 ───
+function injectWandMenu() {
+    const menu = document.getElementById('extensionsMenu');
+    if (!menu || document.getElementById('hotmic-wand-item')) return;
+
+    const item = document.createElement('div');
+    item.id = 'hotmic-wand-item';
+    item.className = 'list-group-item flex-container flexGap5 interactable';
+    item.tabIndex = 0;
+    item.innerHTML = `
+        <div class="extensionsMenuExtensionButton" style="display:flex;align-items:center;justify-content:center;">🎤</div>
+        <span id="hotmic-wand-label">Hot Mic</span>
+    `;
+    menu.appendChild(item);
+
+    const refreshLabel = () => {
+        const s = getSettings();
+        const lbl = document.getElementById('hotmic-wand-label');
+        if (lbl) lbl.textContent = s.enabled ? 'Hot Mic: 켜짐' : 'Hot Mic: 꺼짐';
+    };
+    refreshLabel();
+
+    item.addEventListener('click', () => {
+        const s = getSettings();
+        s.enabled = !s.enabled;
+        saveSettingsDebounced();
+        applyEnabledState();
+        refreshLabel();
+        // 켜면 무조건 자막바(ticker) 상태로 + 화면 안으로
+        if (s.enabled) {
+            setState('ticker');
+            const bar = document.getElementById('observer-bar');
+            if (bar) bar.style.display = '';
+            enforcePosition();
+            setTimeout(runGeneration, 100);
+        }
+        syncControls();
+        // 메뉴 닫기 (모바일)
+        document.getElementById('extensionsMenu')?.classList.remove('shown');
+        document.querySelector('#extensionsMenuButton')?.classList.remove('active');
+    });
+}
+
+// ─── 이벤트 리스너 ───
+function setupEventListeners() {
+    // AI 응답 완료 시 자동 해설
+    eventSource.on(event_types.MESSAGE_RECEIVED, () => {
+        setTimeout(runGeneration, 300); // 렌더 안정화 후
+    });
+
+    // 채팅을 바꾸면 이전 해설을 비우고, 새 채팅 기준으로 다시 생성한다.
+    // (CHAT_CHANGED는 캐릭터/채팅 전환, 새 채팅 시작 모두에서 발생)
+    if (event_types.CHAT_CHANGED) {
+        eventSource.on(event_types.CHAT_CHANGED, () => {
+            stopRecording({ silent: true }); // 진행 중이던 녹음 즉시 중단 → 새 채팅이 안 막힘
+            clearCommentary();
+            // 새 채팅에 이미 메시지가 있으면 잠시 후 해설 생성, 없으면 비운 채 대기
+            setTimeout(() => {
+                const ctx = getContext();
+                const chat = ctx.chat || [];
+                const hasAi = chat.some(m => !m.is_user);
+                if (hasAi && getSettings().enabled) runGeneration();
+            }, 500);
+        });
+    }
+}
+
+// 현재 해설을 비운다 (채팅 전환 시)
+function clearCommentary() {
+    currentCommentary = null;
+    stopAutoScroll();
+    const body = document.querySelector('.obs-panel-body');
+    if (body && !archiveOpen) body.innerHTML = '<div class="obs-empty">🎤 녹음 대기 중...</div>';
+    updateTickerPreview('녹음 대기 중...');
+}
+
+// ─── 특전 수록 (북마크) ───
+// 코멘터리를 전역 보관함(extension_settings.bookmarks)에 저장. 채팅에 쓰지 않음(읽기 전용 유지).
+function bookmarkText(b) {
+    const parts = [];
+    if (b.data.inner)     parts.push('[속마음] ' + b.data.inner);
+    if (b.data.director)  parts.push((DIR_LABELS[b.mode] || '[해설]') + ' ' + b.data.director);
+    if (b.data.fact)      parts.push('[팩트체크] ' + b.data.fact);
+    if (b.data.interview) parts.push('[마이크에 잡힘] ' + b.data.interview);
+    return parts.join('\n\n');
+}
+
+function saveBookmark(btn) {
+    const c = currentCommentary;
+    if (!c || (!c.inner && !c.director && !c.fact && !c.interview)) {
+        flashBtn(btn);
+        toast('저장할 코멘터리가 없어');
+        return;
+    }
+    const s = getSettings();
+    const data = {
+        inner: c.inner || null, director: c.director || null,
+        fact: c.fact || null, interview: c.interview || null, preview: c.preview || null,
+    };
+    const sig = JSON.stringify(data);
+    // 직전 항목과 동일 내용이면 중복 저장 방지
+    if (s.bookmarks[0] && JSON.stringify(s.bookmarks[0].data) === sig) {
+        flashBtn(btn);
+        toast('이미 수록됨');
+        return;
+    }
+    const now = new Date();
+    const mode = s.mode;
+    s.bookmarks.unshift({
+        id: 'bm_' + now.getTime() + '_' + Math.random().toString(36).slice(2, 6),
+        ts: now.getTime(),
+        time: `${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+        mode,
+        modeLabel: MODE_LABELS[mode] || mode,
+        subLabel: c._subLabel || '',
+        data,
+    });
+    if (s.bookmarks.length > 100) s.bookmarks.length = 100; // 상한
+    saveSettingsDebounced();
+    flashBtn(btn);
+    toast('★ 특전 수록 완료');
+    if (archiveOpen) renderArchive();
+}
+
+function deleteBookmark(id) {
+    const s = getSettings();
+    s.bookmarks = s.bookmarks.filter(b => b.id !== id);
+    saveSettingsDebounced();
+    if (archiveOpen) renderArchive();
+}
+
+function clearBookmarks() {
+    const s = getSettings();
+    if (!s.bookmarks.length) return;
+    if (!window.confirm(`특전 수록함을 전부 비울까? (${s.bookmarks.length}개)`)) return;
+    s.bookmarks = [];
+    saveSettingsDebounced();
+    if (archiveOpen) renderArchive();
+}
+
+function copyBookmark(id) {
+    const s = getSettings();
+    const b = s.bookmarks.find(x => x.id === id);
+    if (!b) return;
+    const txt = `${b.modeLabel}${b.subLabel ? ' · ' + b.subLabel : ''} (${b.time})\n\n` + bookmarkText(b);
+    navigator.clipboard?.writeText(txt).then(() => toast('복사됨'), () => toast('복사 실패'));
+}
+
+function openArchive() {
+    archiveOpen = true;
+    if (getSettings().state !== 'panel') setState('panel');
+    renderArchive();
+}
+
+function closeArchive() {
+    archiveOpen = false;
+    renderCommentary(currentCommentary);
+}
+
+function toggleArchive() {
+    if (archiveOpen) closeArchive(); else openArchive();
+}
+
+// 보관함을 패널 본문(.obs-panel-body)에 렌더 (오버레이 X — 모바일 위치 버그 회피)
+function renderArchive() {
+    const body = document.querySelector('#observer-panel .obs-panel-body');
+    if (!body) return;
+    const s = getSettings();
+    const cards = s.bookmarks.length
+        ? s.bookmarks.map(b => {
+            const blk = [];
+            const dl = (DIR_LABELS[b.mode] || '[ 해설 ]').replace(/[\[\] ]/g, '');
+            if (b.data.inner)     blk.push(`<div class="hma-blk"><span class="hma-blk-lbl">속마음</span>${escHtml(b.data.inner)}</div>`);
+            if (b.data.director)  blk.push(`<div class="hma-blk"><span class="hma-blk-lbl">${escHtml(dl)}</span>${escHtml(b.data.director)}</div>`);
+            if (b.data.fact)      blk.push(`<div class="hma-blk"><span class="hma-blk-lbl">팩트체크</span>${escHtml(b.data.fact)}</div>`);
+            if (b.data.interview) blk.push(`<div class="hma-blk"><span class="hma-blk-lbl">마이크에 잡힘</span>${escHtml(b.data.interview)}</div>`);
+            const previewSrc = b.data.preview || b.data.director || b.data.inner || b.data.fact || b.data.interview || '(내용 없음)';
+            return `
+            <div class="hma-card" data-id="${b.id}">
+                <div class="hma-card-top">
+                    <span class="hma-badge">${escHtml(b.modeLabel)}${b.subLabel ? ' · ' + escHtml(b.subLabel) : ''}</span>
+                    <span class="hma-time">${escHtml(b.time)}</span>
+                    <span class="hma-card-btns">
+                        <button class="hma-toggle" title="펼치기">열기 ▾</button>
+                        <button class="hma-copy" data-id="${b.id}" title="복사">⧉</button>
+                        <button class="hma-del" data-id="${b.id}" title="삭제">🗑</button>
+                    </span>
+                </div>
+                <div class="hma-preview">${escHtml(previewSrc)}</div>
+                <div class="hma-card-body">${blk.join('')}</div>
+            </div>`;
+        }).join('')
+        : `<div class="hma-empty">아직 수록된 명장면이 없어.<br>코멘터리 뜬 상태에서 ★ 눌러 저장해봐.</div>`;
+
+    body.innerHTML = `
+        <div class="hma-head">
+            <button class="hma-back" title="코멘터리로 돌아가기">← 코멘터리</button>
+            <span class="hma-title">💿 특전 수록함 (${s.bookmarks.length})</span>
+            <button class="hma-clear" title="전체 삭제">전체 삭제</button>
+        </div>
+        <div class="hma-list">${cards}</div>`;
+
+    body.querySelector('.hma-back')?.addEventListener('click', closeArchive);
+    body.querySelector('.hma-clear')?.addEventListener('click', clearBookmarks);
+    body.querySelectorAll('.hma-toggle').forEach(btn => btn.addEventListener('click', () => {
+        const card = btn.closest('.hma-card');
+        const open = card.classList.toggle('expanded');
+        btn.textContent = open ? '접기 ▴' : '열기 ▾';
+        btn.title = open ? '접기' : '펼치기';
+    }));
+    body.querySelectorAll('.hma-del').forEach(btn => btn.addEventListener('click', () => deleteBookmark(btn.dataset.id)));
+    body.querySelectorAll('.hma-copy').forEach(btn => btn.addEventListener('click', () => copyBookmark(btn.dataset.id)));
+    body.classList.add('hma-active');
+    applyTheme();
+    // 최초 진입 시: 패널 펼침 트랜지션(~0.3s)이나 녹음 중 리플로우 때문에 스크롤이 바닥에 박히는 현상 방지.
+    // 일정 시간(650ms) 매 프레임 최상단으로 고정(락)한다. 락 동안엔 사용자 스크롤이 잠깐 잠긴다.
+    const lockUntil = performance.now() + 650;
+    const pinTop = () => {
+        if (!archiveOpen) return;
+        body.scrollTop = 0;
+        if (performance.now() < lockUntil) requestAnimationFrame(pinTop);
+    };
+    requestAnimationFrame(pinTop);
+}
+
+// 작은 토스트 알림
+function toast(msg) {
+    let t = document.getElementById('hotmic-toast');
+    if (!t) { t = document.createElement('div'); t.id = 'hotmic-toast'; document.body.appendChild(t); }
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => t.classList.remove('show'), 1400);
+}
+
+// 버튼 잠깐 깜빡 피드백 (글자는 안 건드림 — 글리프 꼬임 방지)
+function flashBtn(btn) {
+    if (!btn) return;
+    btn.classList.add('obs-btn-flash');
+    setTimeout(() => btn.classList.remove('obs-btn-flash'), 450);
+}
+
+// 현재 테마 색 (오버레이용)
+function getThemeColors() {
+    const s = getSettings();
+    const themeKey = THEME_ALIAS[s.theme] || s.theme;
+    const t = HOTMIC_THEMES[themeKey] || HOTMIC_THEMES.light;
+    const bgRGB = t.bg.split(',').map(Number);
+    const isDark = (0.299 * bgRGB[0] + 0.587 * bgRGB[1] + 0.114 * bgRGB[2]) < 128;
+    return {
+        accent: t.accent, text: t.text, panel: t.panel, border: t.border,
+        soft: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
+        line: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)',
     };
 }
-if (typeof document !== 'undefined') {
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-    else init();
+
+// ─── 화면 디버그 배너 (모바일은 콘솔을 못 보므로 화면에 직접 표시) ───
+function hotmicDebug(msg, isError) {
+    if (!HOTMIC_DEBUG) return; // 디버그 꺼져있으면 아무것도 안 함
+    let banner = document.getElementById('hotmic-debug');
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'hotmic-debug';
+        banner.style.cssText = [
+            'position:fixed', 'top:0', 'left:0', 'right:0', 'z-index:2147483647',
+            'background:rgba(0,0,0,0.9)', 'color:#0f0', 'font:11px/1.4 monospace',
+            'padding:6px 8px', 'max-height:75vh', 'overflow:auto',
+            'white-space:pre-wrap', 'border-bottom:2px solid #0f0', 'pointer-events:auto',
+        ].join(';');
+        document.body.appendChild(banner);
+        const closeBtn = document.createElement('div');
+        closeBtn.textContent = '✕ 닫기';
+        closeBtn.style.cssText = 'color:#ff0;text-align:right;cursor:pointer;font-weight:bold;border-bottom:1px solid #0f0;padding-bottom:4px;margin-bottom:4px;';
+        closeBtn.addEventListener('click', () => banner.remove());
+        banner.appendChild(closeBtn);
+    }
+    const line = document.createElement('div');
+    line.textContent = msg;
+    if (isError) line.style.color = '#ff5050';
+    banner.appendChild(line);
+}
+
+// 단계별 안전 실행 (에러만 콘솔로, 화면 로그는 디버그일 때만)
+function safeStep(label, fn) {
+    try {
+        fn();
+        hotmicDebug('✅ ' + label);
+    } catch (e) {
+        console.error('[Hot Mic] ' + label + ' 에러:', e);
+        hotmicDebug('❌ ' + label + ': ' + (e?.message || e), true);
+    }
+}
+
+// ─── 초기화 ───
+jQuery(async () => {
+    // 각 단계를 독립적으로 — 하나 터져도 나머지는 계속
+    safeStep('injectUI', injectUI);
+    safeStep('enforcePosition(우선)', enforcePosition);
+    safeStep('setupEventListeners', setupEventListeners);
+    safeStep('applyEnabledState', applyEnabledState);
+    safeStep('applyOpacity', applyOpacity);
+    safeStep('applyIconPos', applyIconPos);
+    setTimeout(() => safeStep('injectSettings(지연)', injectSettings), 0);
+    setTimeout(() => safeStep('injectWandMenu(지연)', injectWandMenu), 0);
+    safeStep('syncControls', syncControls);
+
+    // 와우메뉴/설정창이 늦게 그려지는 환경 대비 재시도
+    let tries = 0;
+    const retry = setInterval(() => {
+        try { injectWandMenu(); injectSettings(); } catch (e) {}
+        if (document.getElementById('hotmic-wand-item') || ++tries > 10) {
+            clearInterval(retry);
+        }
+    }, 1000);
+
+    // ST가 로드 중 DOM을 재배치할 수 있으니 위치를 몇 번 더 못박는다
+    [300, 1000, 2500].forEach(ms => setTimeout(() => {
+        try { enforcePosition(); } catch (e) {}
+    }, ms));
+
+    console.log(`[Hot Mic] v${HOTMIC_VERSION} 로드 완료. 캐릭터는 모릅니다.`);
+});
+
+// 디버그 진단 보고 (이스터에그로 켤 때만 호출)
+function showDebugReport() {
+    hotmicDebug('--- Hot Mic 진단 ---');
+    const bar = document.getElementById('observer-bar');
+    if (!bar) { hotmicDebug('❌ observer-bar 없음', true); return; }
+    const r = bar.getBoundingClientRect();
+    const cs = getComputedStyle(bar);
+    hotmicDebug(`bar: parent=${bar.parentElement?.id || bar.parentElement?.tagName}`);
+    hotmicDebug(`bar: display=${cs.display} pos=${cs.position} bottom=${cs.bottom}`);
+    hotmicDebug(`bar: top=${Math.round(r.top)} left=${Math.round(r.left)} size=${Math.round(r.width)}x${Math.round(r.height)}`);
+    hotmicDebug(`화면: winH=${window.innerHeight} winW=${window.innerWidth}`);
+    hotmicDebug(`상태: ${getSettings().state} / 모드: ${getSettings().mode} / 활성: ${getSettings().enabled}`);
+    // 마지막 생성 진단
+    if (HOTMIC_LAST) {
+        hotmicDebug('--- 마지막 생성 ---');
+        hotmicDebug(`시각:${HOTMIC_LAST.time} 모드:${HOTMIC_LAST.mode} 서브:${HOTMIC_LAST.subLabel || '-'}`);
+        hotmicDebug(`분량:${HOTMIC_LAST.length} 맥락:${HOTMIC_LAST.context} 프롬프트:${HOTMIC_LAST.promptLen}자`);
+        if (HOTMIC_LAST.error) hotmicDebug(`❌ 에러: ${HOTMIC_LAST.error}`, true);
+        else hotmicDebug(`응답(앞부분): ${(HOTMIC_LAST.raw || '없음').slice(0, 180)}`);
+    } else {
+        hotmicDebug('마지막 생성 기록 없음 (아직 생성 안 함)');
+    }
+    if (r.top > window.innerHeight || r.top < -r.height) {
+        hotmicDebug('⚠ bar 화면 밖 → 교정 시도', true);
+        try { enforcePosition(); } catch (e) {}
+    } else {
+        hotmicDebug('✓ bar 화면 안');
+    }
+    hotmicDebug('(위 ✕ 닫기 버튼으로 닫으세요)');
 }
